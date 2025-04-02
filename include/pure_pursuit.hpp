@@ -39,12 +39,13 @@ private:
     std::vector<double> Y;
     std::vector<double> V;
 
-    int index;
-    int velocity_index;
+    int index;          // steering waypoint(lookahead)
+    int velocity_index; // velocity get point(current point)
 
-    Eigen::Vector3d lookahead_point_world;  // 월드 좌표계 (보통 "map")
-    Eigen::Vector3d lookahead_point_car;    // 차량 좌표계
-    Eigen::Vector3d current_point_world;    // 차량에 가장 가까운 waypoint (속도 프로파일에 사용)
+    Eigen::Vector3d lookahead_point_world; // 월드 좌표계 (보통 "map")
+    Eigen::Vector3d lookahead_point_car;   // 차량 좌표계
+    Eigen::Vector3d current_point_world; // 차량에 가장 가까운 waypoint (속도
+                                         // 프로파일에 사용)
   };
 
   Eigen::Matrix3d rotation_m;
@@ -60,16 +61,18 @@ private:
   std::string rviz_lookahead_waypoint_topic;
   std::string waypoints_path;
   double K_p;
-  double K_d;                // PD 제어를 위한 미분(derivative) 게인
+  double K_d; // PD 제어를 위한 미분(derivative) 게인
   double min_lookahead;
   double max_lookahead;
   double lookahead_ratio;
   double steering_limit;
   double velocity_percentage;
   double curr_velocity = 0.0;
+  int min_searching_idx_offset;
+  int max_searching_idx_offset;
 
   bool emergency_breaking = false;
-  std::string lane_number = "left";  // "left" 또는 "right"
+  std::string lane_number = "left"; // "left" 또는 "right"
 
   // 파일 객체
   std::fstream csvFile_waypoints;
@@ -85,9 +88,12 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr subscription_odom;
 
   // Publisher
-  rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr publisher_drive;
-  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr vis_current_point_pub;
-  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr vis_lookahead_point_pub;
+  rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr
+      publisher_drive;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr
+      vis_current_point_pub;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr
+      vis_lookahead_point_pub;
 
   // TF 관련 포인터
   std::shared_ptr<tf2_ros::TransformListener> transform_listener_{nullptr};
@@ -119,9 +125,14 @@ private:
 
   void publish_message(double steering_angle);
 
-  void odom_callback(const nav_msgs::msg::Odometry::ConstSharedPtr odom_submsgObj);
+  void
+  odom_callback(const nav_msgs::msg::Odometry::ConstSharedPtr odom_submsgObj);
 
   void timer_callback();
+
+  void get_waypoint_new();
+
+  int path_idx_limiter(int idx);
 };
 
-#endif  // PURE_PURSUIT_HPP
+#endif // PURE_PURSUIT_HPP

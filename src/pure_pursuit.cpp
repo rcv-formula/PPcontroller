@@ -41,6 +41,8 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("min_lookahead", 0.5);
   this->declare_parameter("max_lookahead", 1.0);
   this->declare_parameter("lookahead_ratio", 8.0);
+  this->declare_parameter("min_searching_idx_offset", 10);
+  this->declare_parameter("max_searching_idx_offset", 40);
   this->declare_parameter("K_p", 0.5);
   this->declare_parameter("K_d", 0.1); // 미분 게인
   this->declare_parameter("steering_limit", 25.0);
@@ -59,6 +61,9 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   min_lookahead = this->get_parameter("min_lookahead").as_double();
   max_lookahead = this->get_parameter("max_lookahead").as_double();
   lookahead_ratio = this->get_parameter("lookahead_ratio").as_double();
+  min_searching_idx_offset = this->get_parameter("min_lookahead").as_int();
+  max_searching_idx_offset =
+      this->get_parameter("max_searching_idx_offset").as_int();
   K_p = this->get_parameter("K_p").as_double();
   K_d = this->get_parameter("K_d").as_double();
   steering_limit = this->get_parameter("steering_limit").as_double();
@@ -184,6 +189,64 @@ void PurePursuit::visualize_current_point(Eigen::Vector3d &point) {
   marker.pose.position.y = point(1);
   marker.id = 1;
   vis_current_point_pub->publish(marker);
+}
+
+int PurePursuit::path_idx_limiter(int idx) {
+  for (idx; idx < 0; idx = +num_waypoints) {
+  }
+  return idx % num_waypoints;
+}
+
+void PurePursuit::get_waypoint_new() {
+  if (waypoints.velocity_index < 0) { // frist searching idx
+    int closest_idx = 0;
+    double closest_dist = p2pdist(waypoints.X[closest_idx], x_car_world,
+                                  waypoints.Y[closest_idx], y_car_world);
+    for (int i = 1; i < num_waypoints; i++) {
+      double cur_dist =
+          p2pdist(waypoints.X[i], x_car_world, waypoints.Y[i], y_car_world);
+      if (cur_dist < closest_dist) {
+        closest_idx = i;
+        closest_dist = cur_dist;
+      }
+    }
+    waypoints.velocity_index = closest_idx;
+  } else { // searching idx on warm starts(among the offset)
+    int cur_idx = waypoints.velocity_index;
+    int backIdx = path_idx_limiter(cur_idx - min_searching_idx_offset);
+    int searching_counter = min_searching_idx_offset + max_searching_idx_offset;
+    double min_dist = p2pdist(waypoints.X[cur_idx], x_car_world,
+                              waypoints.Y[cur_idx], y_car_world);
+
+    for (int i = 0; i < searching_counter; i++) {
+      int searching_idx = path_idx_limiter(i + backIdx);
+      double searching_dist = p2pdist(waypoints.X[searching_idx], x_car_world,
+                                      waypoints.Y[searching_idx], y_car_world);
+      if (searching_dist < min_dist) {
+        min_dist = searching_dist;
+        cur_idx = searching_idx;
+      }
+    }
+    waypoints.velocity_index = cur_idx;
+  }
+
+  // lookahead calc
+  double lookahead = std::min(
+      std::max(min_lookahead, max_lookahead * curr_velocity / lookahead_ratio),
+      max_lookahead);
+
+  // lookahead_idx(waypoints.index)updater;
+  int lookahead_searching_idx = waypoints.velocity_index;
+  int next_lookahead_idx = path_idx_limiter(lookahead_searching_idx + 1);
+  double cur_point_to_lookahead_dist = 0;
+  while (cur_point_to_lookahead_dist < lookahead) {
+    cur_point_to_lookahead_dist += p2pdist(
+        waypoints.X[lookahead_searching_idx], waypoints.X[next_lookahead_idx],
+        waypoints.Y[lookahead_searching_idx], waypoints.Y[next_lookahead_idx]);
+    lookahead_searching_idx = next_lookahead_idx;
+    next_lookahead_idx = path_idx_limiter(next_lookahead_idx + 1);
+  }
+  waypoints.index = lookahead_searching_idx;
 }
 
 void PurePursuit::get_waypoint() {

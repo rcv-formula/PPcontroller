@@ -16,6 +16,8 @@ pure_pursuit:
     lookahead_ratio: 4.0 # approximately the max velociy
     #K_p: 0.25 # for square track
     #K_p: 0.15 # for big track
+    min_searching_idx_offset: 10
+    max_searching_idx_offset: 40
     K_p: 0.9
     K_d: 0.08
     I_dist: 3

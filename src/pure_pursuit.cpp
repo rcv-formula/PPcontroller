@@ -440,7 +440,7 @@ void PurePursuit::odom_callback(
               y_car_world);
 
   // waypoint 업데이트, tf 변환, 그리고 PD 제어를 통한 steering 계산
-  get_waypoint();
+  get_waypoint_new();
   transformandinterp_waypoint();
   double steering_angle = p_controller();
   publish_message(steering_angle);

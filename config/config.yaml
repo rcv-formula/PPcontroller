@@ -1,6 +1,6 @@
 pure_pursuit:
   ros__parameters:
-    waypoints_path: "/home/rcv/Desktop/pure_ws/src/pure_pursuit/racelines/hall415.0.csv"
+    waypoints_path: "/home/shin/Desktop/pp_ws/src/PPcontroller/racelines/hall415.0.csv"
     odom_topic: "/odom"
     car_refFrame: "base_link"
     global_refFrame: "map"
@@ -26,4 +26,4 @@ pure_pursuit:
 
 waypoint_visualizer_node:
   ros__parameters:
-    waypoints_path: "/home/rcv/Desktop/pure_ws/src/pure_pursuit/racelines/hall415.0.csv"
+    waypoints_path: "/home/shin/Desktop/pp_ws/src/PPcontroller/racelines/hall415.0.csv"

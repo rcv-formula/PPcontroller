@@ -61,7 +61,8 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   min_lookahead = this->get_parameter("min_lookahead").as_double();
   max_lookahead = this->get_parameter("max_lookahead").as_double();
   lookahead_ratio = this->get_parameter("lookahead_ratio").as_double();
-  min_searching_idx_offset = this->get_parameter("min_lookahead").as_int();
+  min_searching_idx_offset =
+      this->get_parameter("min_searching_idx_offset").as_int();
   max_searching_idx_offset =
       this->get_parameter("max_searching_idx_offset").as_int();
   K_p = this->get_parameter("K_p").as_double();

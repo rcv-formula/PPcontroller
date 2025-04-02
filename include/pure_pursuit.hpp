@@ -61,7 +61,8 @@ private:
   std::string rviz_lookahead_waypoint_topic;
   std::string waypoints_path;
   double K_p;
-  double K_d; // PD 제어를 위한 미분(derivative) 게인
+  double K_d; 
+  double K_i;// PD 제어를 위한 미분(derivative) 게인
   double min_lookahead;
   double max_lookahead;
   double lookahead_ratio;
@@ -102,7 +103,7 @@ private:
   // PD 제어를 위한 이전 오차와 이전 시간 (미분 항 계산용)
   double prev_error;
   rclcpp::Time prev_time;
-
+  double integral_error;
   // private 함수들
   double to_radians(double degrees);
   double to_degrees(double radians);

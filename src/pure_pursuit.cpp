@@ -45,6 +45,7 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("max_searching_idx_offset", 40);
   this->declare_parameter("K_p", 0.5);
   this->declare_parameter("K_d", 0.1); // 미분 게인
+  this->declare_parameter("K_i", 0.05); // 추가된 적분 게인
   this->declare_parameter("steering_limit", 25.0);
   this->declare_parameter("velocity_percentage", 0.6);
 
@@ -67,8 +68,12 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
       this->get_parameter("max_searching_idx_offset").as_int();
   K_p = this->get_parameter("K_p").as_double();
   K_d = this->get_parameter("K_d").as_double();
+  K_i = this->get_parameter("K_i").as_double();  // I제어기 파라미터 읽기
   steering_limit = this->get_parameter("steering_limit").as_double();
   velocity_percentage = this->get_parameter("velocity_percentage").as_double();
+
+  // 초기 적분 오차 초기화
+  integral_error = 0.0;
 
   // Subscriber, Publisher, Timer 등 초기화
   subscription_odom = this->create_subscription<nav_msgs::msg::Odometry>(
@@ -199,7 +204,7 @@ int PurePursuit::path_idx_limiter(int idx) {
 }
 
 void PurePursuit::get_waypoint_new() {
-  if (waypoints.velocity_index < 0) { // frist searching idx
+  if (waypoints.velocity_index < 0) { // first searching idx
     int closest_idx = 0;
     double closest_dist = p2pdist(waypoints.X[closest_idx], x_car_world,
                                   waypoints.Y[closest_idx], y_car_world);
@@ -236,7 +241,7 @@ void PurePursuit::get_waypoint_new() {
       std::max(min_lookahead, max_lookahead * curr_velocity / lookahead_ratio),
       max_lookahead);
 
-  // lookahead_idx(waypoints.index)updater;
+  // lookahead_idx(waypoints.index) updater;
   int lookahead_searching_idx = waypoints.velocity_index;
   int next_lookahead_idx = path_idx_limiter(lookahead_searching_idx + 1);
   double cur_point_to_lookahead_dist = 0;
@@ -374,13 +379,16 @@ double PurePursuit::p_controller() {
   rclcpp::Time current_time = this->now();
   double dt = (current_time - prev_time).seconds();
 
+  // I제어기: 적분 오차 누적 (적분 windup에 대한 방지 처리는 필요에 따라 추가)
+  integral_error += error * dt;
+
   double derivative = 0.0;
   if (dt > 0.0) {
     derivative = (error - prev_error) / dt;
   }
 
-  // PD 제어: steering angle = K_p * error + K_d * derivative
-  double angle = K_p * error + K_d * derivative;
+  // PID 제어: steering angle = K_p * error + K_i * integral_error + K_d * derivative
+  double angle = K_p * error + K_i * integral_error + K_d * derivative;
 
   // 이전 오차 및 시간 업데이트
   prev_error = error;
@@ -422,12 +430,12 @@ void PurePursuit::publish_message(double steering_angle) {
 
   RCLCPP_INFO(this->get_logger(),
               "index: %d ... distance: %.2fm ... Speed: %.2fm/s ... Steering "
-              "Angle: %.2f ... K_p: %.2f ... velocity_percentage: %.2f",
+              "Angle: %.2f ... K_p: %.2f ... K_i: %.2f ... velocity_percentage: %.2f",
               waypoints.index,
               p2pdist(waypoints.X[waypoints.index], x_car_world,
                       waypoints.Y[waypoints.index], y_car_world),
               drive_msgObj.drive.speed,
-              to_degrees(drive_msgObj.drive.steering_angle), K_p,
+              to_degrees(drive_msgObj.drive.steering_angle), K_p, K_i,
               velocity_percentage);
 
   publisher_drive->publish(drive_msgObj);
@@ -440,7 +448,7 @@ void PurePursuit::odom_callback(
   RCLCPP_INFO(this->get_logger(), "odom x:  %.4f  %.4f", x_car_world,
               y_car_world);
 
-  // waypoint 업데이트, tf 변환, 그리고 PD 제어를 통한 steering 계산
+  // waypoint 업데이트, tf 변환, 그리고 PID 제어를 통한 steering 계산
   get_waypoint_new();
   transformandinterp_waypoint();
   double steering_angle = p_controller();
@@ -451,6 +459,7 @@ void PurePursuit::timer_callback() {
   // 주기적으로 파라미터 업데이트
   K_p = this->get_parameter("K_p").as_double();
   K_d = this->get_parameter("K_d").as_double();
+  K_i = this->get_parameter("K_i").as_double(); // I제어기 파라미터 업데이트
   velocity_percentage = this->get_parameter("velocity_percentage").as_double();
   min_lookahead = this->get_parameter("min_lookahead").as_double();
   max_lookahead = this->get_parameter("max_lookahead").as_double();

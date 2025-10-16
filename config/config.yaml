@@ -1,6 +1,6 @@
 pure_pursuit:
   ros__parameters:
-    waypoints_path: "/home/rcv/Desktop/pure_ws/src/pure_pursuit/racelines/hall415.0.csv"
+    waypoints_path: "/home/rcv/Desktop/pure_new_ws/src/PPcontroller/racelines/hall426.0.csv"
     odom_topic: "/odom"
     car_refFrame: "base_link"
     global_refFrame: "map"
@@ -11,17 +11,20 @@ pure_pursuit:
     # Pure Pursuit Parameters
     # Lookahead is computed using the following: lookahead = min(max(min_lookahead, max_lookahead * curr_velocity / lookahead_ratio), max_lookahead);
     # min_lookahead: 0.5 # for square track
-    min_lookahead: 1.0 # for larger track
-    max_lookahead: 2.5 # lookahead when the car is going around max velocity
-    lookahead_ratio: 4.0 # approximately the max velociy
+    min_lookahead: 0.8 # for larger track
+    max_lookahead: 2.0 # lookahead when the car is going around max velocity
+    lookahead_ratio: 5.5 # approximately the max velociy
     #K_p: 0.25 # for square track
     #K_p: 0.15 # for big track
-    K_p: 0.9
-    K_d: 0.08
+    min_searching_idx_offset: 10
+    max_searching_idx_offset: 40
+    K_p: 0.95
+    K_d: 0.008
+    K_i: 0.008
     I_dist: 3
     steering_limit: 25.0
     velocity_percentage: 1.0 # the limit, can only do 1 lap with clean tires
 
 waypoint_visualizer_node:
   ros__parameters:
-    waypoints_path: "/home/rcv/Desktop/pure_ws/src/pure_pursuit/racelines/hall415.0.csv"
+    waypoints_path: "/home/rcv/Desktop/pure_new_ws/src/PPcontroller/racelines/hall426.0.csv"

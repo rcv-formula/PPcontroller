@@ -16,6 +16,12 @@ pure_pursuit:
     K_p: 0.5
     steering_limit: 25.0
     velocity_percentage: 1.0 # the limit, can only do 1 lap with clean tires
+    steer_reduction_speed_threshold: 5.0 # m/s
+    steer_reduction_constant_coef: 0.85
+    steer_reduction_linear_coef: 0.03
+    steer_reduction_min_scale: 0.3
+    speed_reduction_steer_angle_deg: 12.0
+    max_allowed_steer_drop_deg: 5.0
 
 waypoint_visualizer_node:
   ros__parameters:

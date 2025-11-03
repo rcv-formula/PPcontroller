@@ -84,6 +84,12 @@ private:
   double steering_limit;
   double velocity_percentage;
   double heading_error_gain;
+  double steer_reduction_speed_threshold;
+  double steer_reduction_constant_coef;
+  double steer_reduction_linear_coef;
+  double steer_reduction_min_scale;
+  double speed_reduction_angle_threshold;
+  double max_allowed_steer_drop;
   double curr_velocity = 0.0;
   int min_searching_idx_offset;
   int max_searching_idx_offset;

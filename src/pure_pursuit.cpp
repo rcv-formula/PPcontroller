@@ -61,6 +61,12 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("steering_limit", 25.0);
   this->declare_parameter("velocity_percentage", 0.6);
   this->declare_parameter("heading_error_gain", 0.0);
+  this->declare_parameter("steer_reduction_speed_threshold", 5.0);
+  this->declare_parameter("steer_reduction_constant_coef", 0.85);
+  this->declare_parameter("steer_reduction_linear_coef", 0.03);
+  this->declare_parameter("steer_reduction_min_scale", 0.3);
+  this->declare_parameter("speed_reduction_steer_angle_deg", 12.0);
+  this->declare_parameter("max_allowed_steer_drop_deg", 5.0);
 
   // 파라미터 읽어오기
   waypoints_path = this->get_parameter("waypoints_path").as_string();
@@ -86,6 +92,18 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   velocity_percentage = this->get_parameter("velocity_percentage").as_double();
   heading_error_gain =
       this->get_parameter("heading_error_gain").as_double();
+  steer_reduction_speed_threshold =
+      this->get_parameter("steer_reduction_speed_threshold").as_double();
+  steer_reduction_constant_coef =
+      this->get_parameter("steer_reduction_constant_coef").as_double();
+  steer_reduction_linear_coef =
+      this->get_parameter("steer_reduction_linear_coef").as_double();
+  steer_reduction_min_scale =
+      this->get_parameter("steer_reduction_min_scale").as_double();
+  speed_reduction_angle_threshold = to_radians(
+      this->get_parameter("speed_reduction_steer_angle_deg").as_double());
+  max_allowed_steer_drop = to_radians(
+      this->get_parameter("max_allowed_steer_drop_deg").as_double());
 
   // 초기 적분 오차 초기화
   integral_error = 0.0;
@@ -505,26 +523,80 @@ double PurePursuit::get_velocity(double steering_angle) {
 
 void PurePursuit::publish_message(double steering_angle) {
   auto drive_msgObj = ackermann_msgs::msg::AckermannDriveStamped();
-  if (steering_angle < 0.0) {
-    drive_msgObj.drive.steering_angle =
-        std::max(steering_angle, -to_radians(steering_limit));
-  } else {
-    drive_msgObj.drive.steering_angle =
-        std::min(steering_angle, to_radians(steering_limit));
+  const double raw_steering = steering_angle;
+  const double steering_limit_rad = to_radians(steering_limit);
+  const double steering_for_velocity =
+      std::clamp(raw_steering, -steering_limit_rad, steering_limit_rad);
+  double desired_speed = get_velocity(steering_for_velocity);
+  const double min_scale = std::clamp(steer_reduction_min_scale, 0.0, 1.0);
+  const double positive_linear =
+      std::max(steer_reduction_linear_coef, 0.0);
+
+  auto compute_scale = [&](double speed) {
+    double scale = 1.0;
+    if (speed > steer_reduction_speed_threshold) {
+      const double over_speed = speed - steer_reduction_speed_threshold;
+      const double candidate =
+          steer_reduction_constant_coef - positive_linear * over_speed;
+      scale = std::clamp(candidate, min_scale, 1.0);
+    }
+    return scale;
+  };
+
+  double steer_scale = compute_scale(desired_speed);
+  double adjusted_steering = raw_steering * steer_scale;
+  const double original_abs = std::abs(raw_steering);
+  auto calc_drop = [&](double scaled) {
+    return std::max(0.0, original_abs - std::abs(scaled));
+  };
+  double steer_drop = calc_drop(adjusted_steering);
+
+  if (original_abs >= speed_reduction_angle_threshold &&
+      steer_drop > max_allowed_steer_drop) {
+    const double safe_original =
+        std::max(original_abs, 1e-6);
+    double required_scale =
+        1.0 - max_allowed_steer_drop / safe_original;
+    required_scale = std::clamp(required_scale, min_scale, 1.0);
+
+    const double scale_at_threshold =
+        std::clamp(steer_reduction_constant_coef, min_scale, 1.0);
+    double speed_cap = steer_reduction_speed_threshold;
+    if (positive_linear > 1e-6 && required_scale < scale_at_threshold) {
+      const double allowed_over_speed =
+          (scale_at_threshold - required_scale) / positive_linear;
+      speed_cap = steer_reduction_speed_threshold + allowed_over_speed;
+    }
+    desired_speed = std::min(desired_speed, speed_cap);
+    steer_scale = compute_scale(desired_speed);
+    adjusted_steering = raw_steering * steer_scale;
+    steer_drop = calc_drop(adjusted_steering);
+
+    if (steer_drop > max_allowed_steer_drop &&
+        desired_speed > steer_reduction_speed_threshold) {
+      desired_speed = steer_reduction_speed_threshold;
+      steer_scale = compute_scale(desired_speed);
+      adjusted_steering = raw_steering * steer_scale;
+      steer_drop = calc_drop(adjusted_steering);
+    }
   }
 
-  curr_velocity = get_velocity(drive_msgObj.drive.steering_angle);
+  drive_msgObj.drive.steering_angle =
+      std::clamp(adjusted_steering, -steering_limit_rad, steering_limit_rad);
+
+  curr_velocity = desired_speed;
   drive_msgObj.drive.speed = curr_velocity;
 
   RCLCPP_INFO(
       this->get_logger(),
       "index: %d ... distance: %.2fm ... Speed: %.2fm/s ... Steering "
-      "Angle: %.2f ... K_p: %.2f ... K_i: %.2f ... velocity_percentage: %.2f",
+      "Angle: %.2f ... Raw Steering: %.2f ... Steer Scale: %.2f ... K_p: %.2f "
+      "... K_i: %.2f ... velocity_percentage: %.2f",
       waypoints.index,
       p2pdist(waypoints.X[waypoints.index], x_car_world,
               waypoints.Y[waypoints.index], y_car_world),
       drive_msgObj.drive.speed, to_degrees(drive_msgObj.drive.steering_angle),
-      K_p, K_i, velocity_percentage);
+      to_degrees(raw_steering), steer_scale, K_p, K_i, velocity_percentage);
 
   publisher_drive->publish(drive_msgObj);
 }
@@ -582,6 +654,18 @@ void PurePursuit::timer_callback() {
   max_lookahead = this->get_parameter("max_lookahead").as_double();
   lookahead_ratio = this->get_parameter("lookahead_ratio").as_double();
   steering_limit = this->get_parameter("steering_limit").as_double();
+  steer_reduction_speed_threshold =
+      this->get_parameter("steer_reduction_speed_threshold").as_double();
+  steer_reduction_constant_coef =
+      this->get_parameter("steer_reduction_constant_coef").as_double();
+  steer_reduction_linear_coef =
+      this->get_parameter("steer_reduction_linear_coef").as_double();
+  steer_reduction_min_scale =
+      this->get_parameter("steer_reduction_min_scale").as_double();
+  speed_reduction_angle_threshold = to_radians(
+      this->get_parameter("speed_reduction_steer_angle_deg").as_double());
+  max_allowed_steer_drop = to_radians(
+      this->get_parameter("max_allowed_steer_drop_deg").as_double());
 }
 
 double PurePursuit::normalize_angle(double angle) {

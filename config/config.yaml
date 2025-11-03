@@ -25,6 +25,12 @@ pure_pursuit:
     heading_error_gain: 0.3
     steering_limit: 25.0
     velocity_percentage: 1.0 # the limit, can only do 1 lap with clean tires
+    steer_reduction_speed_threshold: 5.0 # 조향감소 시작 속도m/s
+    steer_reduction_constant_coef: 0.85  #조향감소 상수계수(스케일)
+    steer_reduction_linear_coef: 0.03  #조향감소 선형계수(스케일)
+    steer_reduction_min_scale: 0.3  #조향감소 하한치(스케일)
+    speed_reduction_steer_angle_deg: 12.0  #속도 감소가 시작되는 감소량(deg)
+    max_allowed_steer_drop_deg: 5.0  #최대 조향 감소량(최소 보장되는 스티어링 앵글(deg))
 
 waypoint_visualizer_node:
   ros__parameters:

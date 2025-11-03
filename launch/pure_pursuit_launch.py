@@ -19,12 +19,12 @@ def generate_launch_description():
         parameters=[config]
     )
 
-    waypoint_visualizer_node = Node(
-        package='pure_pursuit',
-        executable='waypoint_visualizer',
-        name='waypoint_visualizer_node',
-        parameters=[config]
-    )
+    #waypoint_visualizer_node = Node(
+    #    package='pure_pursuit',
+    #    executable='waypoint_visualizer',
+    #    name='waypoint_visualizer_node',
+    #    parameters=[config]
+    #)
 
     # rviz_node = Node(
         # package='rviz2',
@@ -37,6 +37,6 @@ def generate_launch_description():
     # finalize
     # ld.add_action(rviz_node)
     ld.add_action(pure_pursuit)
-    ld.add_action(waypoint_visualizer_node)
+    #ld.add_action(waypoint_visualizer_node)
 
     return ld

@@ -50,6 +50,7 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("rviz_lookahead_waypoint_topic",
                           "/lookahead_waypoint");
   this->declare_parameter("global_refFrame", "map");
+  this->declare_parameter("path_is_circular", true);
   this->declare_parameter("min_lookahead", 0.5);
   this->declare_parameter("max_lookahead", 1.0);
   this->declare_parameter("lookahead_ratio", 8.0);
@@ -78,6 +79,7 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   rviz_lookahead_waypoint_topic =
       this->get_parameter("rviz_lookahead_waypoint_topic").as_string();
   global_refFrame = this->get_parameter("global_refFrame").as_string();
+  path_is_circular = this->get_parameter("path_is_circular").as_bool();
   min_lookahead = this->get_parameter("min_lookahead").as_double();
   max_lookahead = this->get_parameter("max_lookahead").as_double();
   lookahead_ratio = this->get_parameter("lookahead_ratio").as_double();
@@ -124,7 +126,7 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   pathQos.durability(rclcpp::DurabilityPolicy::TransientLocal);
 
   subscription_path = this->create_subscription<nav_msgs::msg::Path>(
-      "/Path", 10,
+      "/global_path", pathQos,
       std::bind(&PurePursuit::path_callback, this, std::placeholders::_1));
 
   publisher_drive =
@@ -259,15 +261,24 @@ void PurePursuit::visualize_current_point(Eigen::Vector3d &point) {
 }
 
 int PurePursuit::path_idx_limiter(int idx) {
-  // 원형 경로를 사용하므로 인덱스를 순환시킵니다. 음수 인덱스는 전체 길이를 더해
-  // 양수로 만들어줍니다.
-  for (; idx < 0; idx += num_waypoints) {
-    // 빈 루프: idx가 0 이상이 될 때까지 num_waypoints를 더한다.
-  }
-  if (num_waypoints == 0) {
+  if (num_waypoints <= 0) {
     return 0;
   }
-  return std::min(idx, num_waypoints-1);
+
+  if (path_is_circular) {
+    const int mod = idx % num_waypoints;
+    return mod >= 0 ? mod : mod + num_waypoints;
+  }
+
+  if (idx < 0) {
+    return 0;
+  }
+
+  if (idx >= num_waypoints) {
+    return num_waypoints - 1;
+  }
+
+  return idx;
 }
 
 void PurePursuit::get_waypoint_new() {
@@ -289,20 +300,38 @@ void PurePursuit::get_waypoint_new() {
   } else {
     // warm start: 현재 velocity_index 부근에서 일정 범위 내에서 가장 가까운 포인트 탐색
     int cur_idx = waypoints.velocity_index;
-    int backIdx = path_idx_limiter(cur_idx - min_searching_idx_offset);
-    int searching_counter = min_searching_idx_offset + max_searching_idx_offset;
-    double min_dist_sq =
-        planar_distance_sq(waypoints.X[cur_idx], waypoints.Y[cur_idx],
-                           x_car_world, y_car_world);
-    for (int i = 0; i < searching_counter; i++) {
-      int searching_idx = path_idx_limiter(i + backIdx);
-      double searching_dist_sq =
-          planar_distance_sq(waypoints.X[searching_idx],
-                             waypoints.Y[searching_idx], x_car_world,
-                             y_car_world);
-      if (searching_dist_sq < min_dist_sq) {
-        min_dist_sq = searching_dist_sq;
-        cur_idx = searching_idx;
+    const int searching_counter =
+        min_searching_idx_offset + max_searching_idx_offset;
+    double min_dist_sq = planar_distance_sq(
+        waypoints.X[cur_idx], waypoints.Y[cur_idx], x_car_world, y_car_world);
+
+    if (path_is_circular) {
+      int backIdx = path_idx_limiter(cur_idx - min_searching_idx_offset);
+      for (int i = 0; i < searching_counter; i++) {
+        int searching_idx = path_idx_limiter(backIdx + i);
+        double searching_dist_sq =
+            planar_distance_sq(waypoints.X[searching_idx],
+                               waypoints.Y[searching_idx], x_car_world,
+                               y_car_world);
+        if (searching_dist_sq < min_dist_sq) {
+          min_dist_sq = searching_dist_sq;
+          cur_idx = searching_idx;
+        }
+      }
+    } else {
+      const int start_idx = std::max(cur_idx - min_searching_idx_offset, 0);
+      const int end_idx =
+          std::min(cur_idx + max_searching_idx_offset, num_waypoints - 1);
+      for (int searching_idx = start_idx; searching_idx <= end_idx;
+           ++searching_idx) {
+        double searching_dist_sq =
+            planar_distance_sq(waypoints.X[searching_idx],
+                               waypoints.Y[searching_idx], x_car_world,
+                               y_car_world);
+        if (searching_dist_sq < min_dist_sq) {
+          min_dist_sq = searching_dist_sq;
+          cur_idx = searching_idx;
+        }
       }
     }
     waypoints.velocity_index = cur_idx;
@@ -315,18 +344,51 @@ void PurePursuit::get_waypoint_new() {
 
   // lookahead_idx(waypoints.index) updater
   int lookahead_searching_idx = waypoints.velocity_index;
-  int next_lookahead_idx = path_idx_limiter(lookahead_searching_idx + 1);
-  double cur_point_to_lookahead_dist = 0;
+  double cur_point_to_lookahead_dist = 0.0;
+  int steps_taken = 0;
   while (cur_point_to_lookahead_dist < lookahead) {
-    cur_point_to_lookahead_dist += p2pdist(
-        waypoints.X[lookahead_searching_idx], waypoints.X[next_lookahead_idx],
-        waypoints.Y[lookahead_searching_idx], waypoints.Y[next_lookahead_idx]);
-    if(cur_point_to_lookahead_dist <=0 or next_lookahead_idx >= num_waypoints-2){ // 무한루프 방지
-      waypoints.index = lookahead_searching_idx;
-      return;
+    int next_lookahead_idx;
+    if (path_is_circular) {
+      if (steps_taken >= num_waypoints) {
+        // 이미 전체 경로만큼 탐색했으므로 더 이상 진행하지 않습니다.
+        break;
+      }
+      ++steps_taken;
+      next_lookahead_idx = path_idx_limiter(lookahead_searching_idx + 1);
+      if (next_lookahead_idx == lookahead_searching_idx) {
+        // 유효한 다음 포인트가 없는 경우
+        break;
+      }
+    } else {
+      next_lookahead_idx =
+          std::min(lookahead_searching_idx + 1, num_waypoints - 1);
+      if (next_lookahead_idx == lookahead_searching_idx) {
+        // 선형 경로의 끝에 도달
+        break;
+      }
     }
+
+    const double segment_distance =
+        p2pdist(waypoints.X[lookahead_searching_idx],
+                waypoints.X[next_lookahead_idx],
+                waypoints.Y[lookahead_searching_idx],
+                waypoints.Y[next_lookahead_idx]);
+    if (segment_distance <= 1e-6) {
+      // 매우 짧거나 동일한 포인트인 경우: circular path에서는 다음 포인트로 넘어가며,
+      // linear path에서는 더 이상 진행하지 않습니다.
+      if (!path_is_circular) {
+        break;
+      }
+      lookahead_searching_idx = next_lookahead_idx;
+      continue;
+    }
+
+    cur_point_to_lookahead_dist += segment_distance;
     lookahead_searching_idx = next_lookahead_idx;
-    next_lookahead_idx = path_idx_limiter(next_lookahead_idx + 1);
+
+    if (!path_is_circular && lookahead_searching_idx >= num_waypoints - 1) {
+      break;
+    }
   }
   waypoints.index = lookahead_searching_idx;
 }

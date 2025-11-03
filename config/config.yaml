@@ -7,13 +7,14 @@ pure_pursuit:
     drive_topic: "/drive"
     rviz_current_waypoint_topic: "/current_waypoint"
     rviz_lookahead_waypoint_topic: "/lookahead_waypoint"
+    path_is_circular: true
 
     # Pure Pursuit Parameters
     # Lookahead is computed using the following: lookahead = min(max(min_lookahead, max_lookahead * curr_velocity / lookahead_ratio), max_lookahead);
     # min_lookahead: 0.5 # for square track
     min_lookahead: 0.8 # for larger track
-    max_lookahead: 2.5 # lookahead when the car is going around max velocity
-    lookahead_ratio: 5.5 # approximately the max velociy
+    max_lookahead: 3.5 # lookahead when the car is going around max velocity
+    lookahead_ratio: 6.5 # approximately the max velociy
     #K_p: 0.25 # for square track
     #K_p: 0.15 # for big track
     min_searching_idx_offset: 10
@@ -25,12 +26,12 @@ pure_pursuit:
     heading_error_gain: 0.3
     steering_limit: 25.0
     velocity_percentage: 1.0 # the limit, can only do 1 lap with clean tires
-    steer_reduction_speed_threshold: 5.0 # 조향감소 시작 속도m/s
+    steer_reduction_speed_threshold: 4.0 # 조향감소 시작 속도m/s
     steer_reduction_constant_coef: 0.85  #조향감소 상수계수(스케일)
-    steer_reduction_linear_coef: 0.03  #조향감소 선형계수(스케일)
-    steer_reduction_min_scale: 0.3  #조향감소 하한치(스케일)
-    speed_reduction_steer_angle_deg: 12.0  #속도 감소가 시작되는 감소량(deg)
-    max_allowed_steer_drop_deg: 5.0  #최대 조향 감소량(최소 보장되는 스티어링 앵글(deg))
+    steer_reduction_linear_coef: 0.15  #조향감소 선형계수(스케일)
+    steer_reduction_min_scale: 0.2  #조향감소 하한치(스케일)
+    speed_reduction_steer_angle_deg: 8.0  #속도 감소가 시작되는 감소량(deg)
+    max_allowed_steer_drop_deg: 8.0  #최대 조향 감소량(최소 보장되는 스티어링 앵글(deg))
 
 waypoint_visualizer_node:
   ros__parameters:

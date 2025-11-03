@@ -94,6 +94,7 @@ private:
   int min_searching_idx_offset;
   int max_searching_idx_offset;
   double car_heading;
+  bool path_is_circular = true;
 
   bool emergency_breaking = false;
   std::string lane_number = "left"; // "left" 또는 "right"

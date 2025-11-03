@@ -90,6 +90,9 @@ private:
   double steer_reduction_min_scale;
   double speed_reduction_angle_threshold;
   double max_allowed_steer_drop;
+  double speed_reduction_adjust;
+  double speed_reduction_prev_scale;
+  double previous_speed_reduction;
   double curr_velocity = 0.0;
   int min_searching_idx_offset;
   int max_searching_idx_offset;

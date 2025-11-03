@@ -32,6 +32,8 @@ pure_pursuit:
     steer_reduction_min_scale: 0.2  #조향감소 하한치(스케일)
     speed_reduction_steer_angle_deg: 8.0  #속도 감소가 시작되는 감소량(deg)
     max_allowed_steer_drop_deg: 8.0  #최대 조향 감소량(최소 보장되는 스티어링 앵글(deg))
+    speed_reduction_adjust: 0.0  #속도 제한 시 추가로 감속할 양(+이면 더 감속, -이면 완화)
+    speed_reduction_prev_scale: 0.3  #이전 감속량 기반 추가 스케일 계수
 
 waypoint_visualizer_node:
   ros__parameters:

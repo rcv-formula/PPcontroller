@@ -22,6 +22,8 @@ pure_pursuit:
     steer_reduction_min_scale: 0.3
     speed_reduction_steer_angle_deg: 12.0
     max_allowed_steer_drop_deg: 5.0
+    speed_reduction_adjust: 0.0
+    speed_reduction_prev_scale: 0.0
 
 waypoint_visualizer_node:
   ros__parameters:

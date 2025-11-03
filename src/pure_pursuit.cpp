@@ -68,6 +68,8 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("steer_reduction_min_scale", 0.3);
   this->declare_parameter("speed_reduction_steer_angle_deg", 12.0);
   this->declare_parameter("max_allowed_steer_drop_deg", 5.0);
+  this->declare_parameter("speed_reduction_adjust", 0.0);
+  this->declare_parameter("speed_reduction_prev_scale", 0.0);
 
   // 파라미터 읽어오기
   waypoints_path = this->get_parameter("waypoints_path").as_string();
@@ -106,11 +108,16 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
       this->get_parameter("speed_reduction_steer_angle_deg").as_double());
   max_allowed_steer_drop = to_radians(
       this->get_parameter("max_allowed_steer_drop_deg").as_double());
+  speed_reduction_adjust =
+      this->get_parameter("speed_reduction_adjust").as_double();
+  speed_reduction_prev_scale =
+      this->get_parameter("speed_reduction_prev_scale").as_double();
 
   // 초기 적분 오차 초기화
   integral_error = 0.0;
   rotation_m.setIdentity();
   car_heading = 0.0;
+  previous_speed_reduction = 0.0;
 
   // 경로 수신 플래그 초기화
   path_received_ = false;
@@ -589,10 +596,17 @@ void PurePursuit::publish_message(double steering_angle) {
   const double steering_limit_rad = to_radians(steering_limit);
   const double steering_for_velocity =
       std::clamp(raw_steering, -steering_limit_rad, steering_limit_rad);
-  double desired_speed = get_velocity(steering_for_velocity);
+  const double base_desired_speed = get_velocity(steering_for_velocity);
+  double desired_speed = base_desired_speed;
   const double min_scale = std::clamp(steer_reduction_min_scale, 0.0, 1.0);
   const double positive_linear =
       std::max(steer_reduction_linear_coef, 0.0);
+  const double prev_adjust =
+      std::max(0.0, previous_speed_reduction) *
+      std::max(0.0, speed_reduction_prev_scale);
+  const double total_speed_adjust = speed_reduction_adjust + prev_adjust;
+  const double adjusted_drop_speed =
+      std::max(0.0, steer_reduction_speed_threshold - total_speed_adjust);
 
   auto compute_scale = [&](double speed) {
     double scale = 1.0;
@@ -629,14 +643,24 @@ void PurePursuit::publish_message(double steering_angle) {
           (scale_at_threshold - required_scale) / positive_linear;
       speed_cap = steer_reduction_speed_threshold + allowed_over_speed;
     }
-    desired_speed = std::min(desired_speed, speed_cap);
+    double tuned_speed_cap =
+        std::max(0.0, speed_cap - total_speed_adjust);
+    desired_speed = std::min(desired_speed, tuned_speed_cap);
     steer_scale = compute_scale(desired_speed);
     adjusted_steering = raw_steering * steer_scale;
     steer_drop = calc_drop(adjusted_steering);
 
     if (steer_drop > max_allowed_steer_drop &&
-        desired_speed > steer_reduction_speed_threshold) {
-      desired_speed = steer_reduction_speed_threshold;
+        desired_speed > adjusted_drop_speed) {
+      desired_speed = adjusted_drop_speed;
+      steer_scale = compute_scale(desired_speed);
+      adjusted_steering = raw_steering * steer_scale;
+      steer_drop = calc_drop(adjusted_steering);
+    }
+
+    if (steer_drop > max_allowed_steer_drop) {
+      desired_speed =
+          std::max(0.0, steer_reduction_speed_threshold - total_speed_adjust);
       steer_scale = compute_scale(desired_speed);
       adjusted_steering = raw_steering * steer_scale;
       steer_drop = calc_drop(adjusted_steering);
@@ -648,17 +672,21 @@ void PurePursuit::publish_message(double steering_angle) {
 
   curr_velocity = desired_speed;
   drive_msgObj.drive.speed = curr_velocity;
+  previous_speed_reduction =
+      std::max(0.0, base_desired_speed - curr_velocity);
 
   RCLCPP_INFO(
       this->get_logger(),
       "index: %d ... distance: %.2fm ... Speed: %.2fm/s ... Steering "
-      "Angle: %.2f ... Raw Steering: %.2f ... Steer Scale: %.2f ... K_p: %.2f "
+      "Angle: %.2f ... Raw Steering: %.2f ... Steer Scale: %.2f ... "
+      "SpeedAdj: %.2f ... PrevReduction: %.2f ... K_p: %.2f "
       "... K_i: %.2f ... velocity_percentage: %.2f",
       waypoints.index,
       p2pdist(waypoints.X[waypoints.index], x_car_world,
               waypoints.Y[waypoints.index], y_car_world),
       drive_msgObj.drive.speed, to_degrees(drive_msgObj.drive.steering_angle),
-      to_degrees(raw_steering), steer_scale, K_p, K_i, velocity_percentage);
+      to_degrees(raw_steering), steer_scale, total_speed_adjust,
+      previous_speed_reduction, K_p, K_i, velocity_percentage);
 
   publisher_drive->publish(drive_msgObj);
 }
@@ -728,6 +756,10 @@ void PurePursuit::timer_callback() {
       this->get_parameter("speed_reduction_steer_angle_deg").as_double());
   max_allowed_steer_drop = to_radians(
       this->get_parameter("max_allowed_steer_drop_deg").as_double());
+  speed_reduction_adjust =
+      this->get_parameter("speed_reduction_adjust").as_double();
+  speed_reduction_prev_scale =
+      this->get_parameter("speed_reduction_prev_scale").as_double();
 }
 
 double PurePursuit::normalize_angle(double angle) {

@@ -7,8 +7,9 @@ pure_pursuit:
     drive_topic: "/drive"
     rviz_current_waypoint_topic: "/current_waypoint"
     rviz_lookahead_waypoint_topic: "/lookahead_waypoint"
-    path_is_circular: true
-
+    path_is_circular: True
+    # path_is_circular를 false로 해야 로컬패스 가능
+    
     # Pure Pursuit Parameters
     # Lookahead is computed using the following: lookahead = min(max(min_lookahead, max_lookahead * curr_velocity / lookahead_ratio), max_lookahead);
     # min_lookahead: 0.5 # for square track
@@ -19,21 +20,21 @@ pure_pursuit:
     #K_p: 0.15 # for big track
     min_searching_idx_offset: 10
     max_searching_idx_offset: 40
-    K_p: 0.6
+    K_p: 0.5
     K_d: 0.06
     K_i: 0.000
     I_dist: 3
-    heading_error_gain: 0.3
+    heading_error_gain: 0.35
     steering_limit: 25.0
-    velocity_percentage: 1.0 # the limit, can only do 1 lap with clean tires
+    velocity_percentage: 0.9 # the limit, can only do 1 lap with clean tires
     steer_reduction_speed_threshold: 4.0 # 조향감소 시작 속도m/s
-    steer_reduction_constant_coef: 0.85  #조향감소 상수계수(스케일)
-    steer_reduction_linear_coef: 0.15  #조향감소 선형계수(스케일)
-    steer_reduction_min_scale: 0.2  #조향감소 하한치(스케일)
-    speed_reduction_steer_angle_deg: 8.0  #속도 감소가 시작되는 감소량(deg)
-    max_allowed_steer_drop_deg: 8.0  #최대 조향 감소량(최소 보장되는 스티어링 앵글(deg))
-    speed_reduction_adjust: 0.0  #속도 제한 시 추가로 감속할 양(+이면 더 감속, -이면 완화)
-    speed_reduction_prev_scale: 0.3  #이전 감속량 기반 추가 스케일 계수
+    steer_reduction_constant_coef: 0.90  #조향감소 상수계수(스케일)
+    steer_reduction_linear_coef: 0.05  #조향감소 선형계수(스케일)
+    steer_reduction_min_scale: 0.5  #조향감소 하한치(스케일)
+    speed_reduction_steer_angle_deg: 5.0  #속도 감소가 시작되는 감소량(deg)
+    max_allowed_steer_drop_deg: 15.0  #최대 조향 감소량(최소 보장되는 스티어링 앵글(deg))
+    speed_reduction_adjust: 0.3  #속도 제한 시 추가로 감속할 양(+이면 더 감속, -이면 완화)
+    speed_reduction_prev_scale: 0.2  #이전 감속량 기반 추가 스케일 계수
 
 waypoint_visualizer_node:
   ros__parameters:

@@ -369,7 +369,7 @@ void PurePursuit::get_waypoint_new() {
     } else {
       next_lookahead_idx =
           std::min(lookahead_searching_idx + 1, num_waypoints - 1);
-      if (next_lookahead_idx == lookahead_searching_idx) {
+      if (next_lookahead_idx == num_waypoints-1) {
         // 선형 경로의 끝에 도달
         break;
       }

@@ -13,20 +13,20 @@ pure_pursuit:
     # Pure Pursuit Parameters
     # Lookahead is computed using the following: lookahead = min(max(min_lookahead, max_lookahead * curr_velocity / lookahead_ratio), max_lookahead);
     # min_lookahead: 0.5 # for square track
-    min_lookahead: 0.8 # for larger track
+    min_lookahead: 2.5 # for larger track
     max_lookahead: 3.5 # lookahead when the car is going around max velocity
     lookahead_ratio: 6.5 # approximately the max velociy
     #K_p: 0.25 # for square track
     #K_p: 0.15 # for big track
     min_searching_idx_offset: 10
     max_searching_idx_offset: 40
-    K_p: 0.5
+    K_p: 0.51
     K_d: 0.06
     K_i: 0.000
     I_dist: 3
-    heading_error_gain: 0.35
-    steering_limit: 25.0
-    velocity_percentage: 0.9 # the limit, can only do 1 lap with clean tires
+    heading_error_gain: 0.45
+    steering_limit: 50.0
+    velocity_percentage: 1.0 # the limit, can only do 1 lap with clean tires
     steer_reduction_speed_threshold: 4.0 # 조향감소 시작 속도m/s
     steer_reduction_constant_coef: 0.90  #조향감소 상수계수(스케일)
     steer_reduction_linear_coef: 0.05  #조향감소 선형계수(스케일)

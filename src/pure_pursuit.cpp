@@ -70,6 +70,9 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("max_allowed_steer_drop_deg", 5.0);
   this->declare_parameter("speed_reduction_adjust", 0.0);
   this->declare_parameter("speed_reduction_prev_scale", 0.0);
+  this->declare_parameter("angle_buster_start", 0.2);
+  this->declare_parameter("angle_buster_amount", 1);
+  this->declare_parameter("angle_buster_scale", 1);
 
   // 파라미터 읽어오기
   waypoints_path = this->get_parameter("waypoints_path").as_string();
@@ -112,6 +115,12 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
       this->get_parameter("speed_reduction_adjust").as_double();
   speed_reduction_prev_scale =
       this->get_parameter("speed_reduction_prev_scale").as_double();
+  anglebuster_start = 
+      this->get_parameter("angle_buster_start").as_double();
+  anglebuster_amount = 
+      this->get_parameter("angle_buster_amount").as_double();
+  anglebuster_scale = 
+      this->get_parameter("angle_buster_scale").as_double();
 
   // 초기 적분 오차 초기화
   integral_error = 0.0;
@@ -473,6 +482,25 @@ void PurePursuit::get_waypoint() {
   waypoints.velocity_index = velocity_i;
 }
 
+double PurePursuit::angleBuster(double current_angle){
+  //anglebuster_amount;
+  //anglebuster_start;
+  // 위 두 변수(파라미터)를 사용하여 start이상의 조향이 들어오면 1차 이상의 곡선(곡선 차수는 amount)만큼의 조향값을 추가하여 반환
+  double diff = std::abs(current_angle)-anglebuster_start;
+  if (diff > 0){
+    double add_amount = std::pow(diff, anglebuster_amount)*anglebuster_scale;
+    if (current_angle<0){
+      return current_angle - add_amount;
+    }
+    else{
+      return current_angle + add_amount;
+    }
+  }
+  else{
+    return current_angle;
+  }
+}
+
 void PurePursuit::transformandinterp_waypoint() {
   // 현재 추종할 waypoint와 속도 프로파일용 waypoint 업데이트
   // waypoints.index 는 lookahead 인덱스, waypoints.velocity_index 는 차량에 가장
@@ -668,7 +696,7 @@ void PurePursuit::publish_message(double steering_angle) {
   }
 
   drive_msgObj.drive.steering_angle =
-      std::clamp(adjusted_steering, -steering_limit_rad, steering_limit_rad);
+      std::clamp(angleBuster(adjusted_steering), -steering_limit_rad, steering_limit_rad);
 
   curr_velocity = desired_speed;
   drive_msgObj.drive.speed = curr_velocity;

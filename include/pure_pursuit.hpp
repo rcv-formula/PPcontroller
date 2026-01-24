@@ -98,6 +98,9 @@ private:
   int max_searching_idx_offset;
   double car_heading;
   bool path_is_circular = true;
+  double anglebuster_start;
+  double anglebuster_amount;
+  double anglebuster_scale;
 
   bool emergency_breaking = false;
   std::string lane_number = "left"; // "left" 또는 "right"
@@ -145,6 +148,7 @@ private:
                  const double &y2);
 
   void load_waypoints();
+  double angleBuster(double current_angel);
 
   void visualize_lookahead_point(Eigen::Vector3d &point);
   void visualize_current_point(Eigen::Vector3d &point);

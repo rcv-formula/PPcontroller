@@ -23,7 +23,11 @@ pure_pursuit:
     K_p: 0.51
     K_d: 0.06
     K_i: 0.000
-    I_dist: 3
+
+    angle_buster_start: 0.2 # 라디안, 부스터 시작 조향각
+    angle_buster_amount: 1 #승수, 1이면 두배(리니어)
+    angle_buster_scale: 1 #최종 계수, 위의 파라미터로 최공 계산된 값에 곱해짐
+
     heading_error_gain: 0.45
     steering_limit: 50.0
     velocity_percentage: 1.0 # the limit, can only do 1 lap with clean tires

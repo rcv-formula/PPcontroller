@@ -25,6 +25,7 @@
 #include "tf2_ros/transform_listener.h"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
+#include "geometry_msgs/msg/point_stamped.hpp"
 
 #define _USE_MATH_DEFINES
 using std::placeholders::_1;
@@ -64,9 +65,12 @@ private:
 
   // 회전 행렬 저장용
   Eigen::Matrix3d rotation_m;
-
+  //차량 현재 위치(map프레임)
   double x_car_world;
   double y_car_world;
+  //장애물 위치(map프레임)
+  double x_obs = 0;
+  double y_obs = 0;
 
   std::string odom_topic;
   std::string car_refFrame;
@@ -83,6 +87,7 @@ private:
   double lookahead_ratio;
   double steering_limit;
   double velocity_percentage;
+  double velocity_reduce_obs = 1;
   double heading_error_gain;
   double steer_reduction_speed_threshold;
   double steer_reduction_constant_coef;
@@ -101,6 +106,9 @@ private:
   double anglebuster_start;
   double anglebuster_amount;
   double anglebuster_scale;
+  bool slow_with_obs;
+  double slow_th_dist;
+  double slow_amount;
 
   bool emergency_breaking = false;
   std::string lane_number = "left"; // "left" 또는 "right"
@@ -116,6 +124,8 @@ private:
 
   // Subscriber
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr subscription_odom;
+  rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr subscription_odom_obs;
+  rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr obs_status;
 
   // Path subscriber: nav_msgs::Path 타입의 경로 메시지를 수신합니다.
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr subscription_path;
@@ -165,6 +175,8 @@ private:
 
   void
   odom_callback(const nav_msgs::msg::Odometry::ConstSharedPtr odom_submsgObj);
+  void obs_odom_callback(const geometry_msgs::msg::PointStamped msg);
+  void obs_status_callback(const geometry_msgs::msg::PointStamped msg);
 
   void timer_callback();
 

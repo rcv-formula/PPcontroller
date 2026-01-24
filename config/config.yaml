@@ -13,24 +13,36 @@ pure_pursuit:
     # Pure Pursuit Parameters
     # Lookahead is computed using the following: lookahead = min(max(min_lookahead, max_lookahead * curr_velocity / lookahead_ratio), max_lookahead);
     # min_lookahead: 0.5 # for square track
-    min_lookahead: 2.5 # for larger track
-    max_lookahead: 3.5 # lookahead when the car is going around max velocity
-    lookahead_ratio: 6.5 # approximately the max velociy
+    min_lookahead: 1.2 # for larger track
+    max_lookahead: 2.5 # lookahead when the car is going around max velocity
+    lookahead_ratio: 10.5 # approximately the max velociy
     #K_p: 0.25 # for square track
     #K_p: 0.15 # for big track
+    
+    #PID, Heding error계수
     min_searching_idx_offset: 10
     max_searching_idx_offset: 40
     K_p: 0.51
     K_d: 0.06
     K_i: 0.000
 
-    angle_buster_start: 0.2 # 라디안, 부스터 시작 조향각
-    angle_buster_amount: 1 #승수, 1이면 두배(리니어)
-    angle_buster_scale: 1 #최종 계수, 위의 파라미터로 최공 계산된 값에 곱해짐
-
     heading_error_gain: 0.45
     steering_limit: 50.0
+
+    #바깥쪽 조향각 증가
+    angle_buster_start: 0.2 # 라디안, 부스터 시작 조향각
+    angle_buster_amount: 0.7 #승수, 1이면 두배(리니어)
+    angle_buster_scale: 0.5 #최종 계수, 위의 파라미터로 최공 계산된 값에 곱해짐
+    
     velocity_percentage: 1.0 # the limit, can only do 1 lap with clean tires
+
+    #장애물 관련 속조 감속 파라미터
+    slow_with_obs: True
+    obs_slow_th: 2.5 #(m)
+    obs_slow_percentage: 0.7 #(퍼센트)
+
+
+    #고속 안정성용 파라미터(인공홀 기준)
     steer_reduction_speed_threshold: 4.0 # 조향감소 시작 속도m/s
     steer_reduction_constant_coef: 0.90  #조향감소 상수계수(스케일)
     steer_reduction_linear_coef: 0.05  #조향감소 선형계수(스케일)

@@ -26,6 +26,8 @@
 #include "tf2_ros/transform_listener.h"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
+#include "geometry_msgs/msg/point_stamped.hpp"
+
 
 namespace {
 inline double planar_distance_sq(double x1, double y1, double x2, double y2) {
@@ -71,8 +73,11 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("speed_reduction_adjust", 0.0);
   this->declare_parameter("speed_reduction_prev_scale", 0.0);
   this->declare_parameter("angle_buster_start", 0.2);
-  this->declare_parameter("angle_buster_amount", 1);
-  this->declare_parameter("angle_buster_scale", 1);
+  this->declare_parameter("angle_buster_amount", 1.0);
+  this->declare_parameter("angle_buster_scale", 1.0);
+  this->declare_parameter("slow_with_obs", true);
+  this->declare_parameter("obs_slow_th", 3.0);
+  this->declare_parameter("obs_slow_percentage", 0.6);
 
   // 파라미터 읽어오기
   waypoints_path = this->get_parameter("waypoints_path").as_string();
@@ -121,6 +126,12 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
       this->get_parameter("angle_buster_amount").as_double();
   anglebuster_scale = 
       this->get_parameter("angle_buster_scale").as_double();
+  slow_with_obs = 
+      this->get_parameter("slow_with_obs").as_bool();
+  slow_th_dist = 
+      this->get_parameter("obs_slow_th").as_double();
+  slow_amount = 
+      this->get_parameter("obs_slow_percentage").as_double();
 
   // 초기 적분 오차 초기화
   integral_error = 0.0;
@@ -134,6 +145,12 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   // Subscriber, Publisher, Timer 등 초기화
   subscription_odom = this->create_subscription<nav_msgs::msg::Odometry>(
       odom_topic, 25, std::bind(&PurePursuit::odom_callback, this, _1));
+
+  subscription_odom_obs = this->create_subscription<geometry_msgs::msg::PointStamped>(
+      "/static_obstacle", 10, std::bind(&PurePursuit::obs_odom_callback, this, _1));
+  obs_status = this->create_subscription<geometry_msgs::msg::PointStamped>(
+      "/obj_flag", 10, std::bind(&PurePursuit::obs_status_callback, this, _1));
+
   timer_ = this->create_wall_timer(
       2000ms, std::bind(&PurePursuit::timer_callback, this));
 
@@ -603,7 +620,7 @@ double PurePursuit::get_velocity(double steering_angle) {
   if (!waypoints.V.empty() && waypoints.velocity_index >= 0 &&
       waypoints.velocity_index < static_cast<int>(waypoints.V.size()) &&
       waypoints.V[waypoints.velocity_index] > 0.0) {
-    velocity = waypoints.V[waypoints.velocity_index] * velocity_percentage;
+    velocity = waypoints.V[waypoints.velocity_index] * velocity_percentage * velocity_reduce_obs;
   } else {
     // 속도 정보가 없으면 steering 각도에 따른 기본 속도를 설정한다.
     double abs_angle = std::abs(steering_angle);
@@ -758,6 +775,27 @@ void PurePursuit::odom_callback(
   transformandinterp_waypoint();
   double steering_angle = p_controller();
   publish_message(steering_angle);
+}
+
+void PurePursuit::obs_odom_callback(const geometry_msgs::msg::PointStamped msg){
+  x_obs = msg.point.x;
+  y_obs = msg.point.y;
+}
+
+void PurePursuit::obs_status_callback(const geometry_msgs::msg::PointStamped msg){ //장애물 정보 반영 속도 줄이기
+  int obsIsValid = int(msg.point.y);
+  if(slow_with_obs && obsIsValid){
+    if(p2pdist(x_obs, x_car_world, y_obs, y_car_world)<slow_th_dist){
+      velocity_reduce_obs = slow_amount;
+    }
+    else{
+      velocity_reduce_obs = 1;
+    }
+  }
+  else{
+    velocity_reduce_obs = 1;
+  }
+
 }
 
 void PurePursuit::timer_callback() {

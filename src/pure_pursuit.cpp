@@ -159,7 +159,7 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   //pathQos.durability(rclcpp::DurabilityPolicy::TransientLocal);
 
   subscription_path = this->create_subscription<nav_msgs::msg::Path>(
-      "/selected_path", pathQos,
+      "/Path", pathQos,
       std::bind(&PurePursuit::path_callback, this, std::placeholders::_1));
 
   publisher_drive =

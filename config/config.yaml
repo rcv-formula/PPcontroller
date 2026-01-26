@@ -34,11 +34,11 @@ pure_pursuit:
     angle_buster_amount: 0.7 #승수, 1이면 두배(리니어)
     angle_buster_scale: 0.5 #최종 계수, 위의 파라미터로 최공 계산된 값에 곱해짐
     
-    velocity_percentage: 1.0 # the limit, can only do 1 lap with clean tires
+    velocity_percentage: 0.850 # the limit, can only do 1 lap with clean tires
 
     #장애물 관련 속조 감속 파라미터
     slow_with_obs: True
-    obs_slow_th: 2.5 #(m)
+    obs_slow_th: 2.0 #(m)
     obs_slow_percentage: 0.7 #(퍼센트)
 
 

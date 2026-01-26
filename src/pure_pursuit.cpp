@@ -783,7 +783,7 @@ void PurePursuit::obs_odom_callback(const geometry_msgs::msg::PointStamped msg){
 }
 
 void PurePursuit::obs_status_callback(const geometry_msgs::msg::PointStamped msg){ //장애물 정보 반영 속도 줄이기
-  int obsIsValid = int(msg.point.y);
+  int obsIsValid = int(msg.point.x);
   if(slow_with_obs && obsIsValid){
     if(p2pdist(x_obs, x_car_world, y_obs, y_car_world)<slow_th_dist){
       velocity_reduce_obs = slow_amount;

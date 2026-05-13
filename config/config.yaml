@@ -7,6 +7,7 @@ pure_pursuit:
     drive_topic: "/drive"
     rviz_current_waypoint_topic: "/current_waypoint"
     rviz_lookahead_waypoint_topic: "/lookahead_waypoint"
+    rviz_speed_offset_waypoint_topic: "/speed_offset_waypoint"
     path_is_circular: True
     # path_is_circular를 false로 해야 로컬패스 가능
     
@@ -17,12 +18,9 @@ pure_pursuit:
     max_lookahead: 2.5 # lookahead when the car is going around max velocity
     lookahead_ratio: 10.5 # approximately the max velociy
     
-    # 속도 프로파일 lookahead. 현재 종방향 속도/가속도가 유지된다고 가정하고
-    # 이 시간 뒤 도달할 path index의 speed(z)를 사용한다.
-    # 양수: 감가속 타이밍을 앞당김, 음수: 감가속 타이밍을 늦춤, 0: 현재 위치 기준
-    speed_lookahead_time: 0.0
-    speed_lookahead_accel_limit: 8.0
-    speed_lookahead_accel_weight: 1.0
+    # 속도 프로파일을 읽는 waypoint의 거리 offset(m).
+    # 양수: 앞쪽 path speed(z)를 미리 읽음, 음수: 뒤쪽 speed(z)를 읽음, 0: 현재 closest 기준
+    speed_profile_distance_offset: 0.5
     #K_p: 0.25 # for square track
     #K_p: 0.15 # for big track
     

@@ -40,14 +40,14 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("rviz_current_waypoint_topic", "/current_waypoint");
   this->declare_parameter("rviz_lookahead_waypoint_topic",
                           "/lookahead_waypoint");
+  this->declare_parameter("rviz_speed_offset_waypoint_topic",
+                          "/speed_offset_waypoint");
   this->declare_parameter("global_refFrame", "map");
   this->declare_parameter("path_is_circular", true);
   this->declare_parameter("min_lookahead", 0.5);
   this->declare_parameter("max_lookahead", 1.0);
   this->declare_parameter("lookahead_ratio", 8.0);
-  this->declare_parameter("speed_lookahead_time", 0.0);
-  this->declare_parameter("speed_lookahead_accel_limit", 8.0);
-  this->declare_parameter("speed_lookahead_accel_weight", 1.0);
+  this->declare_parameter("speed_profile_distance_offset", 0.0);
   this->declare_parameter("min_searching_idx_offset", 10);
   this->declare_parameter("max_searching_idx_offset", 40);
   this->declare_parameter("K_p", 0.5);
@@ -79,17 +79,15 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
       this->get_parameter("rviz_current_waypoint_topic").as_string();
   rviz_lookahead_waypoint_topic =
       this->get_parameter("rviz_lookahead_waypoint_topic").as_string();
+  rviz_speed_offset_waypoint_topic =
+      this->get_parameter("rviz_speed_offset_waypoint_topic").as_string();
   global_refFrame = this->get_parameter("global_refFrame").as_string();
   path_is_circular = this->get_parameter("path_is_circular").as_bool();
   min_lookahead = this->get_parameter("min_lookahead").as_double();
   max_lookahead = this->get_parameter("max_lookahead").as_double();
   lookahead_ratio = this->get_parameter("lookahead_ratio").as_double();
-  speed_lookahead_time =
-      this->get_parameter("speed_lookahead_time").as_double();
-  speed_lookahead_accel_limit =
-      this->get_parameter("speed_lookahead_accel_limit").as_double();
-  speed_lookahead_accel_weight =
-      this->get_parameter("speed_lookahead_accel_weight").as_double();
+  speed_profile_distance_offset =
+      this->get_parameter("speed_profile_distance_offset").as_double();
   min_searching_idx_offset =
       this->get_parameter("min_searching_idx_offset").as_int();
   max_searching_idx_offset =
@@ -134,7 +132,6 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   y_car_world = 0.0;
   car_heading = 0.0;
   previous_speed_reduction = 0.0;
-  previous_odom_stamp = this->now();
 
   // 경로 수신 플래그 초기화
   path_received_ = false;
@@ -168,6 +165,9 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   vis_lookahead_point_pub =
       this->create_publisher<visualization_msgs::msg::Marker>(
           rviz_lookahead_waypoint_topic, 10);
+  vis_speed_point_pub =
+      this->create_publisher<visualization_msgs::msg::Marker>(
+          rviz_speed_offset_waypoint_topic, 10);
 
   RCLCPP_INFO(this->get_logger(), "Pure pursuit node has been launched");
 
@@ -262,6 +262,24 @@ void PurePursuit::visualize_current_point(Eigen::Vector3d &point) {
   vis_current_point_pub->publish(marker);
 }
 
+void PurePursuit::visualize_speed_point(Eigen::Vector3d &point) {
+  auto marker = visualization_msgs::msg::Marker();
+  marker.header.frame_id = global_refFrame;
+  marker.header.stamp = this->now();
+  marker.type = visualization_msgs::msg::Marker::SPHERE;
+  marker.action = visualization_msgs::msg::Marker::ADD;
+  marker.scale.x = 0.3;
+  marker.scale.y = 0.3;
+  marker.scale.z = 0.3;
+  marker.color.a = 1.0;
+  marker.color.r = 1.0;
+  marker.color.g = 0.8;
+  marker.pose.position.x = point(0);
+  marker.pose.position.y = point(1);
+  marker.id = 1;
+  vis_speed_point_pub->publish(marker);
+}
+
 int PurePursuit::path_idx_limiter(int idx) {
   if (num_waypoints <= 0) {
     return 0;
@@ -326,32 +344,6 @@ int PurePursuit::advance_index_by_distance(int start_idx, double distance) {
   }
 
   return path_idx_limiter(idx);
-}
-
-double PurePursuit::get_speed_lookahead_distance() const {
-  const double t = speed_lookahead_time;
-  const double accel_weight = std::max(0.0, speed_lookahead_accel_weight);
-  double distance =
-      current_longitudinal_speed * t +
-      0.5 * accel_weight * longitudinal_acceleration * t * t;
-
-  const double weighted_acceleration =
-      accel_weight * longitudinal_acceleration;
-  if (t > 0.0 && weighted_acceleration < 0.0) {
-    const double predicted_speed =
-        current_longitudinal_speed + weighted_acceleration * t;
-    if (predicted_speed < 0.0) {
-      const double stop_time =
-          current_longitudinal_speed / -weighted_acceleration;
-      distance = current_longitudinal_speed * stop_time +
-                 0.5 * weighted_acceleration * stop_time * stop_time;
-    }
-  }
-
-  if (t >= 0.0) {
-    return std::max(0.0, distance);
-  }
-  return std::min(0.0, distance);
 }
 
 void PurePursuit::get_waypoint_new() {
@@ -464,10 +456,9 @@ void PurePursuit::get_waypoint_new() {
   }
   waypoints.index = lookahead_searching_idx;
 
-  const double speed_lookahead_distance = get_speed_lookahead_distance();
   waypoints.speed_index =
       advance_index_by_distance(waypoints.velocity_index,
-                                speed_lookahead_distance);
+                                speed_profile_distance_offset);
 }
 
 void PurePursuit::get_waypoint() {
@@ -572,13 +563,18 @@ void PurePursuit::transformandinterp_waypoint() {
   // 경계 체크
   int look_idx = path_idx_limiter(waypoints.index);
   int vel_idx = path_idx_limiter(waypoints.velocity_index);
+  int speed_idx =
+      waypoints.speed_index >= 0 ? path_idx_limiter(waypoints.speed_index)
+                                 : vel_idx;
   // World 좌표계의 타겟 포인트 지정
   lookahead_point_world << waypoints.X[look_idx], waypoints.Y[look_idx], 0.0;
   current_point_world << waypoints.X[vel_idx], waypoints.Y[vel_idx], 0.0;
+  speed_point_world << waypoints.X[speed_idx], waypoints.Y[speed_idx], 0.0;
 
   // RViz 시각화를 위해 현재 포인트와 lookahead 포인트를 퍼블리시
   visualize_lookahead_point(lookahead_point_world);
   visualize_current_point(current_point_world);
+  visualize_speed_point(speed_point_world);
 
   const double dx = lookahead_point_world(0) - x_car_world;
   const double dy = lookahead_point_world(1) - y_car_world;
@@ -756,8 +752,7 @@ void PurePursuit::publish_message(double steering_angle) {
       this->get_logger(),
       "index: %d ... distance: %.2fm ... Speed: %.2fm/s ... Steering "
       "Angle: %.2f ... Raw Steering: %.2f ... SpeedIdx: %d ... "
-      "SpeedLA: %.2fs/%.2fm ... Vx: %.2fm/s ... Ax: %.2fm/s^2 ... "
-      "AxWeight: %.2f ... "
+      "SpeedOffset: %.2fm ... "
       "Steer Scale: %.2f ... "
       "Expo Scale: %.2f ... "
       "SpeedAdj: %.2f ... PrevReduction: %.2f ... K_p: %.2f "
@@ -767,56 +762,10 @@ void PurePursuit::publish_message(double steering_angle) {
               waypoints.Y[waypoints.index], y_car_world),
       drive_msgObj.drive.speed, to_degrees(drive_msgObj.drive.steering_angle),
       to_degrees(raw_steering), waypoints.speed_index,
-      speed_lookahead_time, get_speed_lookahead_distance(),
-      current_longitudinal_speed, longitudinal_acceleration,
-      speed_lookahead_accel_weight, steer_scale, expo_scale, total_speed_adjust,
+      speed_profile_distance_offset, steer_scale, expo_scale, total_speed_adjust,
       previous_speed_reduction, K_p, K_i, velocity_percentage);
 
   publisher_drive->publish(drive_msgObj);
-}
-
-void PurePursuit::update_longitudinal_motion_state(
-    const nav_msgs::msg::Odometry::ConstSharedPtr odom_submsgObj) {
-  const auto &stamp_msg = odom_submsgObj->header.stamp;
-  const bool has_stamp = stamp_msg.sec != 0 || stamp_msg.nanosec != 0;
-  const rclcpp::Time stamp = has_stamp ? rclcpp::Time(stamp_msg) : this->now();
-
-  double dt = 0.0;
-  if (has_previous_odom_pose) {
-    dt = (stamp - previous_odom_stamp).seconds();
-  }
-
-  double pose_based_speed = 0.0;
-  if (has_previous_odom_pose && dt > 1e-4) {
-    const double dx = x_car_world - previous_odom_x;
-    const double dy = y_car_world - previous_odom_y;
-    pose_based_speed =
-        (std::cos(car_heading) * dx + std::sin(car_heading) * dy) / dt;
-  }
-
-  const double twist_speed = odom_submsgObj->twist.twist.linear.x;
-  double measured_speed =
-      std::abs(twist_speed) > 1e-3 ? twist_speed : pose_based_speed;
-  measured_speed = std::max(0.0, measured_speed);
-
-  if (has_previous_longitudinal_speed && dt > 1e-4) {
-    double raw_acceleration =
-        (measured_speed - previous_longitudinal_speed) / dt;
-    const double accel_limit = std::abs(speed_lookahead_accel_limit);
-    if (accel_limit > 1e-6) {
-      raw_acceleration =
-          std::clamp(raw_acceleration, -accel_limit, accel_limit);
-    }
-    longitudinal_acceleration = raw_acceleration;
-  }
-
-  current_longitudinal_speed = measured_speed;
-  previous_longitudinal_speed = measured_speed;
-  has_previous_longitudinal_speed = true;
-  previous_odom_x = x_car_world;
-  previous_odom_y = y_car_world;
-  previous_odom_stamp = stamp;
-  has_previous_odom_pose = true;
 }
 
 void PurePursuit::odom_callback(
@@ -827,7 +776,6 @@ void PurePursuit::odom_callback(
   tf2::Quaternion q(orientation.x, orientation.y, orientation.z,
                     orientation.w);
   car_heading = tf2::getYaw(q);
-  update_longitudinal_motion_state(odom_submsgObj);
 
   if (!global_refFrame.empty() &&
       odom_submsgObj->header.frame_id != global_refFrame) {
@@ -893,12 +841,8 @@ void PurePursuit::timer_callback() {
   min_lookahead = this->get_parameter("min_lookahead").as_double();
   max_lookahead = this->get_parameter("max_lookahead").as_double();
   lookahead_ratio = this->get_parameter("lookahead_ratio").as_double();
-  speed_lookahead_time =
-      this->get_parameter("speed_lookahead_time").as_double();
-  speed_lookahead_accel_limit =
-      this->get_parameter("speed_lookahead_accel_limit").as_double();
-  speed_lookahead_accel_weight =
-      this->get_parameter("speed_lookahead_accel_weight").as_double();
+  speed_profile_distance_offset =
+      this->get_parameter("speed_profile_distance_offset").as_double();
   steering_limit = this->get_parameter("steering_limit").as_double();
   steering_expo_gain =
       this->get_parameter("steering_expo_gain").as_double();

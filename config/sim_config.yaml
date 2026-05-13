@@ -7,15 +7,14 @@ pure_pursuit:
     drive_topic: "/drive"
     rviz_current_waypoint_topic: "/current_waypoint"
     rviz_lookahead_waypoint_topic: "/lookahead_waypoint"
+    rviz_speed_offset_waypoint_topic: "/speed_offset_waypoint"
 
     # Pure Pursuit Parameters
     # Lookahead is computed using the following: lookahead = min(max(min_lookahead, max_lookahead * curr_velocity / lookahead_ratio), max_lookahead);
     min_lookahead: 0.5
     max_lookahead: 3.0 # lookahead when the car is going around max velocity
     lookahead_ratio: 8.0 # approximately the max velocity
-    speed_lookahead_time: 0.0
-    speed_lookahead_accel_limit: 8.0
-    speed_lookahead_accel_weight: 1.0
+    speed_profile_distance_offset: 0.0
     K_p: 0.5
     steering_limit: 25.0
     steering_expo_gain: 0.0

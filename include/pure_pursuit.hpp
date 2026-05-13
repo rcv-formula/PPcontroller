@@ -54,7 +54,8 @@ private:
   // lookahead 및 현재 포인트의 좌표 (world, car 프레임)
   Eigen::Vector3d lookahead_point_world; // 월드 좌표계 (보통 "map")
   Eigen::Vector3d lookahead_point_car;   // 차량 좌표계
-  Eigen::Vector3d current_point_world;   // 차량에 가장 가까운 waypoint (속도 프로파일에 사용)
+  Eigen::Vector3d current_point_world;   // 차량에 가장 가까운 waypoint
+  Eigen::Vector3d speed_point_world;     // 속도 프로파일을 읽는 waypoint
 
   //차량 현재 위치(map프레임)
   double x_car_world;
@@ -70,15 +71,14 @@ private:
   std::string path_topic;
   std::string rviz_current_waypoint_topic;
   std::string rviz_lookahead_waypoint_topic;
+  std::string rviz_speed_offset_waypoint_topic;
   double K_p;
   double K_d;
   double K_i; // PD 제어를 위한 미분(derivative) 게인
   double min_lookahead;
   double max_lookahead;
   double lookahead_ratio;
-  double speed_lookahead_time;
-  double speed_lookahead_accel_limit;
-  double speed_lookahead_accel_weight;
+  double speed_profile_distance_offset;
   double steering_limit;
   double velocity_percentage;
   double velocity_reduce_obs = 1;
@@ -93,14 +93,6 @@ private:
   double speed_reduction_prev_scale;
   double previous_speed_reduction;
   double curr_velocity = 0.0;
-  double current_longitudinal_speed = 0.0;
-  double longitudinal_acceleration = 0.0;
-  double previous_longitudinal_speed = 0.0;
-  bool has_previous_longitudinal_speed = false;
-  bool has_previous_odom_pose = false;
-  double previous_odom_x = 0.0;
-  double previous_odom_y = 0.0;
-  rclcpp::Time previous_odom_stamp;
   int min_searching_idx_offset;
   int max_searching_idx_offset;
   double car_heading;
@@ -135,6 +127,8 @@ private:
       vis_current_point_pub;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr
       vis_lookahead_point_pub;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr
+      vis_speed_point_pub;
 
   // PD 제어를 위한 이전 오차와 이전 시간 (미분 항 계산용)
   double prev_error;
@@ -155,6 +149,7 @@ private:
 
   void visualize_lookahead_point(Eigen::Vector3d &point);
   void visualize_current_point(Eigen::Vector3d &point);
+  void visualize_speed_point(Eigen::Vector3d &point);
 
   void get_waypoint();
 
@@ -181,9 +176,6 @@ private:
 
   int path_idx_limiter(int idx);
   int advance_index_by_distance(int start_idx, double distance);
-  double get_speed_lookahead_distance() const;
-  void update_longitudinal_motion_state(
-      const nav_msgs::msg::Odometry::ConstSharedPtr odom_submsgObj);
   double normalize_angle(double angle);
 };
 

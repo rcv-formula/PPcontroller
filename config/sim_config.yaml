@@ -1,7 +1,7 @@
 pure_pursuit:
   ros__parameters:
-    waypoints_path: "/sim_ws/src/pure_pursuit/racelines/e7_floor5_square.csv"
     odom_topic: "/ego_racecar/odom"
+    path_topic: "/Path"
     car_refFrame: "ego_racecar/base_link"
     global_refFrame: "map"
     drive_topic: "/drive"
@@ -13,8 +13,13 @@ pure_pursuit:
     min_lookahead: 0.5
     max_lookahead: 3.0 # lookahead when the car is going around max velocity
     lookahead_ratio: 8.0 # approximately the max velocity
+    speed_lookahead_time: 0.0
+    speed_lookahead_accel_limit: 8.0
+    speed_lookahead_accel_weight: 1.0
     K_p: 0.5
     steering_limit: 25.0
+    steering_expo_gain: 0.0
+    steering_expo_curve: 2.0
     velocity_percentage: 1.0 # the limit, can only do 1 lap with clean tires
     steer_reduction_speed_threshold: 5.0 # m/s
     steer_reduction_constant_coef: 0.85
@@ -27,4 +32,5 @@ pure_pursuit:
 
 waypoint_visualizer_node:
   ros__parameters:
-    waypoints_path: "/sim_ws/src/pure_pursuit/racelines/e7_floor5_square.csv"
+    path_topic: "/Path"
+    rviz_waypoints_topic: "/waypoints"

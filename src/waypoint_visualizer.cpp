@@ -1,77 +1,54 @@
 #include "waypoint_visualizer.hpp"
 
-#include <math.h>
-
-#include <chrono>
-#include <cstdlib>
-#include <fstream>
-#include <functional>
-#include <geometry_msgs/msg/transform_stamped.hpp>
-#include <iostream>
-#include <memory>
-#include <sstream>
-#include <string>
-#include <vector>
-
-#include "rclcpp/rclcpp.hpp"
-#include "visualization_msgs/msg/marker.hpp"
-#include "visualization_msgs/msg/marker_array.hpp"
-
-WaypointVisualizer::WaypointVisualizer() : Node("waypoint_visualizer_node") {
-    this->declare_parameter("waypoints_path", "/sim_ws/src/pure_pursuit/racelines/e7_floor5.csv");
+WaypointVisualizer::WaypointVisualizer()
+    : Node("waypoint_visualizer_node"), path_received(false) {
+    this->declare_parameter("path_topic", "/Path");
     this->declare_parameter("rviz_waypoints_topic", "/waypoints");
 
-    waypoints_path = this->get_parameter("waypoints_path").as_string();
+    path_topic = this->get_parameter("path_topic").as_string();
     rviz_waypoints_topic = this->get_parameter("rviz_waypoints_topic").as_string();
+
+    rclcpp::QoS pathQos(rclcpp::KeepLast(10));
+    pathQos.reliability(rclcpp::ReliabilityPolicy::Reliable);
+
+    subscription_path = this->create_subscription<nav_msgs::msg::Path>(
+        path_topic, pathQos,
+        std::bind(&WaypointVisualizer::path_callback, this, std::placeholders::_1));
 
     vis_path_pub = this->create_publisher<visualization_msgs::msg::MarkerArray>(rviz_waypoints_topic, 1000);
     timer_ = this->create_wall_timer(2000ms, std::bind(&WaypointVisualizer::timer_callback, this));
 
-    RCLCPP_INFO(this->get_logger(), "this node has been launched");
-    download_waypoints();
+    RCLCPP_INFO(this->get_logger(), "Waypoint visualizer node has been launched");
 }
 
-void WaypointVisualizer::download_waypoints() {  // put all data in vectors
-    csvFile_waypoints.open(waypoints_path, std::ios::in);
-
-    RCLCPP_INFO(this->get_logger(), "%s", (csvFile_waypoints.is_open() ? "fileOpened" : "fileNOTopened"));
-
-    // std::vector<std::string> row;
-    std::string line, word, temp;
-
-    while (!csvFile_waypoints.eof()) {
-        std::getline(csvFile_waypoints, line, '\n');
-
-        std::stringstream s(line);
-
-        int j = 0;
-        while (getline(s, word, ',')) {
-            RCLCPP_INFO(this->get_logger(), "%s", (word.empty() ? "wordempty" : "wordNOTempty"));
-            if (!word.empty()) {
-                if (j == 0) {
-                    double x = std::stod(word);
-                    waypoints.X.push_back(x);
-                    RCLCPP_INFO(this->get_logger(), "%f... Xpoint", waypoints.X.back());
-                }
-
-                if (j == 1) {
-                    waypoints.Y.push_back(std::stod(word));
-                    RCLCPP_INFO(this->get_logger(), "%f... Ypoint", waypoints.Y.back());
-                }
-            }
-
-            j++;
-        }
+void WaypointVisualizer::path_callback(const nav_msgs::msg::Path::SharedPtr path_msg) {
+    if (!path_msg || path_msg->poses.empty()) {
+        RCLCPP_WARN(this->get_logger(), "Received empty path message, ignoring it.");
+        return;
     }
 
-    csvFile_waypoints.close();
+    waypoints.X.clear();
+    waypoints.Y.clear();
+    path_frame_id = path_msg->header.frame_id.empty() ? "map" : path_msg->header.frame_id;
+
+    for (const auto &pose_stamped : path_msg->poses) {
+        waypoints.X.push_back(pose_stamped.pose.position.x);
+        waypoints.Y.push_back(pose_stamped.pose.position.y);
+    }
+
+    path_received = true;
+    visualize_points();
 }
 
 void WaypointVisualizer::visualize_points() {
+    if (!path_received) {
+        return;
+    }
+
     auto marker_array = visualization_msgs::msg::MarkerArray();
     auto marker = visualization_msgs::msg::Marker();
-    marker.header.frame_id = "map";
-    marker.header.stamp = rclcpp::Clock().now();
+    marker.header.frame_id = path_frame_id.empty() ? "map" : path_frame_id;
+    marker.header.stamp = this->now();
     marker.type = visualization_msgs::msg::Marker::SPHERE;
     marker.action = visualization_msgs::msg::Marker::ADD;
     marker.scale.x = 0.15;
@@ -83,6 +60,7 @@ void WaypointVisualizer::visualize_points() {
     for (unsigned int i = 0; i < waypoints.X.size(); ++i) {
         marker.pose.position.x = waypoints.X[i];
         marker.pose.position.y = waypoints.Y[i];
+        marker.pose.position.z = 0.0;
         marker.id = i;
         marker_array.markers.push_back(marker);
     }

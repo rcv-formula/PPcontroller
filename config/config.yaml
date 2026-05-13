@@ -1,7 +1,7 @@
 pure_pursuit:
   ros__parameters:
-    waypoints_path: "/home/rcv/Desktop/PID_ws/src/PPcontroller/racelines/1016.csv"
     odom_topic: "/odom"
+    path_topic: "/Path"
     car_refFrame: "base_link"
     global_refFrame: "map"
     drive_topic: "/drive"
@@ -16,6 +16,13 @@ pure_pursuit:
     min_lookahead: 1.2 # for larger track
     max_lookahead: 2.5 # lookahead when the car is going around max velocity
     lookahead_ratio: 10.5 # approximately the max velociy
+    
+    # 속도 프로파일 lookahead. 현재 종방향 속도/가속도가 유지된다고 가정하고
+    # 이 시간 뒤 도달할 path index의 speed(z)를 사용한다.
+    # 양수: 감가속 타이밍을 앞당김, 음수: 감가속 타이밍을 늦춤, 0: 현재 위치 기준
+    speed_lookahead_time: 0.0
+    speed_lookahead_accel_limit: 8.0
+    speed_lookahead_accel_weight: 1.0
     #K_p: 0.25 # for square track
     #K_p: 0.15 # for big track
     
@@ -29,14 +36,15 @@ pure_pursuit:
     heading_error_gain: 0.45
     steering_limit: 50.0
 
-    #바깥쪽 조향각 증가
-    angle_buster_start: 0.2 # 라디안, 부스터 시작 조향각
-    angle_buster_amount: 0.7 #승수, 1이면 두배(리니어)
-    angle_buster_scale: 0.5 #최종 계수, 위의 파라미터로 최공 계산된 값에 곱해짐
+    # 서보-링크 비선형 보정용 steering expo
+    # gain > 0: 극단부 조향을 더 밀어줌, gain < 0: 극단부 조향을 눌러줌
+    # curve가 클수록 중앙부 영향은 줄고 끝단부 영향이 커짐
+    steering_expo_gain: 0.35
+    steering_expo_curve: 2.0
     
     velocity_percentage: 0.850 # the limit, can only do 1 lap with clean tires
 
-    #장애물 관련 속조 감속 파라미터
+    #장애물 관련 속도 감속 파라미터
     slow_with_obs: True
     obs_slow_th: 2.0 #(m)
     obs_slow_percentage: 0.7 #(퍼센트)
@@ -54,4 +62,5 @@ pure_pursuit:
 
 waypoint_visualizer_node:
   ros__parameters:
-    waypoints_path: "/home/rcv/Desktop/PID_ws/src/PPcontroller/racelines/1016.csv"
+    path_topic: "/Path"
+    rviz_waypoints_topic: "/waypoints"

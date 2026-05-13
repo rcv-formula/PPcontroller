@@ -1,23 +1,16 @@
-#include <math.h>
+#ifndef WAYPOINT_VISUALIZER_HPP
+#define WAYPOINT_VISUALIZER_HPP
 
 #include <chrono>
-#include <cstdlib>
-#include <fstream>
 #include <functional>
-#include <geometry_msgs/msg/transform_stamped.hpp>
-#include <iostream>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <vector>
 
+#include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
-
-// other macros
-#define _USE_MATH_DEFINES
-
 using std::placeholders::_1;
 using namespace std::chrono_literals;
 
@@ -26,20 +19,22 @@ class WaypointVisualizer : public rclcpp::Node {
     WaypointVisualizer();
 
    private:
-    struct csvFileData {
+    struct PathPoints {
         std::vector<double> X;
         std::vector<double> Y;
     };
 
     // topic names
-    std::string waypoints_path;
+    std::string path_topic;
     std::string rviz_waypoints_topic;
+    std::string path_frame_id;
 
-    // file object
-    std::fstream csvFile_waypoints;
+    // path data
+    PathPoints waypoints;
+    bool path_received;
 
-    // struct initialisation
-    csvFileData waypoints;
+    // Subscriber initialisation
+    rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr subscription_path;
 
     // Publisher initialisation
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr vis_path_pub;
@@ -49,8 +44,9 @@ class WaypointVisualizer : public rclcpp::Node {
 
     // private functions
 
-    void download_waypoints();
-
+    void path_callback(const nav_msgs::msg::Path::SharedPtr path_msg);
     void visualize_points();
     void timer_callback();
 };
+
+#endif // WAYPOINT_VISUALIZER_HPP

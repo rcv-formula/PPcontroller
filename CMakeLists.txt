@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.5)
 project(pure_pursuit)
 
-# Default to C++14
+# Default to C++17
 if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 14)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -23,7 +23,6 @@ foreach(PACKAGE
   visualization_msgs
   eigen3_cmake_module
   Eigen3
-  tf2_ros
   tf2)
 
   find_package(${PACKAGE} REQUIRED)
@@ -41,13 +40,13 @@ include_directories(
 add_executable(pure_pursuit src/pure_pursuit.cpp)
 
 ament_target_dependencies(pure_pursuit
-  rclcpp geometry_msgs ackermann_msgs nav_msgs sensor_msgs std_msgs visualization_msgs tf2_ros tf2 eigen3_cmake_module Eigen3
+  rclcpp geometry_msgs ackermann_msgs nav_msgs sensor_msgs std_msgs visualization_msgs tf2 eigen3_cmake_module Eigen3
 )
 
 add_executable(waypoint_visualizer src/waypoint_visualizer.cpp)
 
 ament_target_dependencies(waypoint_visualizer
-  rclcpp geometry_msgs std_msgs visualization_msgs eigen3_cmake_module Eigen3
+  rclcpp geometry_msgs nav_msgs std_msgs visualization_msgs eigen3_cmake_module Eigen3
 )
 
 # Install Cpp executables

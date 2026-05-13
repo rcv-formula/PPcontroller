@@ -4,28 +4,19 @@
 #include <cmath>
 
 #include <Eigen/Eigen>
-#include <Eigen/Geometry>
 #include <algorithm>
 #include <chrono>
-#include <cstdlib>
-#include <fstream>
-#include <iostream>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <vector>
 
 #include "ackermann_msgs/msg/ackermann_drive_stamped.hpp"
-#include "geometry_msgs/msg/pose_stamped.hpp"
-#include "geometry_msgs/msg/transform_stamped.hpp"
+#include "geometry_msgs/msg/point_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
-#include "geometry_msgs/msg/point_stamped.hpp"
 
 #define _USE_MATH_DEFINES
 using std::placeholders::_1;
@@ -37,7 +28,7 @@ public:
 
 private:
   // 구조체: 추종할 경로의 데이터와 관련된 상태를 보관합니다. ROS의 nav_msgs::Path
-  // 메시지나 CSV 로부터 읽어온 좌표를 저장하고, 현재 추종중인 포인트의 인덱스를
+  // 메시지로부터 읽어온 좌표를 저장하고, 현재 추종중인 포인트의 인덱스를
   // 관리합니다. z 값은 속도(v)로 사용합니다.
   struct Waypoints {
     // 각 축별 좌표와 속도 벡터
@@ -48,6 +39,8 @@ private:
     int index = 0;
     // 현재 차량 위치에 가장 가까운 waypoint 인덱스
     int velocity_index = -1;
+    // 속도 프로파일을 읽을 waypoint 인덱스
+    int speed_index = -1;
   };
 
   // Waypoints 구조체 인스턴스
@@ -63,8 +56,6 @@ private:
   Eigen::Vector3d lookahead_point_car;   // 차량 좌표계
   Eigen::Vector3d current_point_world;   // 차량에 가장 가까운 waypoint (속도 프로파일에 사용)
 
-  // 회전 행렬 저장용
-  Eigen::Matrix3d rotation_m;
   //차량 현재 위치(map프레임)
   double x_car_world;
   double y_car_world;
@@ -76,15 +67,18 @@ private:
   std::string car_refFrame;
   std::string drive_topic;
   std::string global_refFrame;
+  std::string path_topic;
   std::string rviz_current_waypoint_topic;
   std::string rviz_lookahead_waypoint_topic;
-  std::string waypoints_path;
   double K_p;
   double K_d;
   double K_i; // PD 제어를 위한 미분(derivative) 게인
   double min_lookahead;
   double max_lookahead;
   double lookahead_ratio;
+  double speed_lookahead_time;
+  double speed_lookahead_accel_limit;
+  double speed_lookahead_accel_weight;
   double steering_limit;
   double velocity_percentage;
   double velocity_reduce_obs = 1;
@@ -99,22 +93,26 @@ private:
   double speed_reduction_prev_scale;
   double previous_speed_reduction;
   double curr_velocity = 0.0;
+  double current_longitudinal_speed = 0.0;
+  double longitudinal_acceleration = 0.0;
+  double previous_longitudinal_speed = 0.0;
+  bool has_previous_longitudinal_speed = false;
+  bool has_previous_odom_pose = false;
+  double previous_odom_x = 0.0;
+  double previous_odom_y = 0.0;
+  rclcpp::Time previous_odom_stamp;
   int min_searching_idx_offset;
   int max_searching_idx_offset;
   double car_heading;
   bool path_is_circular = true;
-  double anglebuster_start;
-  double anglebuster_amount;
-  double anglebuster_scale;
+  double steering_expo_gain;
+  double steering_expo_curve;
   bool slow_with_obs;
   double slow_th_dist;
   double slow_amount;
 
   bool emergency_breaking = false;
   std::string lane_number = "left"; // "left" 또는 "right"
-
-  // 파일 객체
-  std::fstream csvFile_waypoints;
 
   // Waypoint 개수 (path 길이). Waypoints 구조체의 벡터 크기와 동일합니다.
   int num_waypoints;
@@ -138,10 +136,6 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr
       vis_lookahead_point_pub;
 
-  // TF 관련 포인터
-  std::shared_ptr<tf2_ros::TransformListener> transform_listener_{nullptr};
-  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
-
   // PD 제어를 위한 이전 오차와 이전 시간 (미분 항 계산용)
   double prev_error;
   rclcpp::Time prev_time;
@@ -157,8 +151,7 @@ private:
   double p2pdist(const double &x1, const double &x2, const double &y1,
                  const double &y2);
 
-  void load_waypoints();
-  double angleBuster(double current_angel);
+  double apply_steering_expo(double steering_angle, double steering_limit_rad);
 
   void visualize_lookahead_point(Eigen::Vector3d &point);
   void visualize_current_point(Eigen::Vector3d &point);
@@ -187,6 +180,10 @@ private:
   void get_waypoint_new();
 
   int path_idx_limiter(int idx);
+  int advance_index_by_distance(int start_idx, double distance);
+  double get_speed_lookahead_distance() const;
+  void update_longitudinal_motion_state(
+      const nav_msgs::msg::Odometry::ConstSharedPtr odom_submsgObj);
   double normalize_angle(double angle);
 };
 

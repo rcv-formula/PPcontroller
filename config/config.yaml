@@ -5,6 +5,8 @@ pure_pursuit:
     car_refFrame: "base_link"
     global_refFrame: "map"
     drive_topic: "/drive"
+    test_mode: False
+    drive_test_topic: "/drive_test"
     rviz_current_waypoint_topic: "/current_waypoint"
     rviz_lookahead_waypoint_topic: "/lookahead_waypoint"
     rviz_speed_offset_waypoint_topic: "/speed_offset_waypoint"
@@ -21,6 +23,19 @@ pure_pursuit:
     # 속도 프로파일을 읽는 waypoint의 거리 offset(m).
     # 양수: 앞쪽 path speed(z)를 미리 읽음, 음수: 뒤쪽 speed(z)를 읽음, 0: 현재 closest 기준
     speed_profile_distance_offset: 0.5
+
+    #보간된 drive command를 출력 hz
+    drive_output_rate_hz: 50.0
+
+    #steer잔떨림 제거 필터
+    steer_latest_blend: 0.10   #적은 스티어링 변화에서 1주기당 새로운 값 반영 비율, 높을수록 빠른 반영 낮을수록 잔떨림 적어짐
+    steer_large_change_blend: 0.23  #높은 스티어링 변화에서 1주기당 새로운 값 반영 비율, 높을수록 빠른 반영 낮을수록 잔떨림 적어짐
+    steer_blend_change_threshold_deg: 15.0  #낮은 스티어링/높은 스티어링 변화량 threash hold, 실제 반영은 이 값을 기준으로 부드럽게 blend비율을 반영함.
+
+    #speed 잔떨림 제거 필더
+    speed_latest_blend: 0.40
+
+    
     #K_p: 0.25 # for square track
     #K_p: 0.15 # for big track
     
@@ -28,7 +43,7 @@ pure_pursuit:
     min_searching_idx_offset: 10
     max_searching_idx_offset: 40
     K_p: 0.51
-    K_d: 0.06
+    K_d: 0.035
     K_i: 0.000
 
     heading_error_gain: 0.45

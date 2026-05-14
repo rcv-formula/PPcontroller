@@ -67,6 +67,8 @@ private:
   std::string odom_topic;
   std::string car_refFrame;
   std::string drive_topic;
+  std::string drive_test_topic;
+  std::string drive_output_topic;
   std::string global_refFrame;
   std::string path_topic;
   std::string rviz_current_waypoint_topic;
@@ -93,6 +95,20 @@ private:
   double speed_reduction_prev_scale;
   double previous_speed_reduction;
   double curr_velocity = 0.0;
+  bool test_mode = false;
+  double drive_output_rate_hz = 50.0;
+  double active_drive_output_rate_hz = 0.0;
+  double steer_latest_blend = 0.10;
+  double steer_large_change_blend = 0.55;
+  double steer_blend_change_threshold_deg = 10.0;
+  double speed_latest_blend = 0.90;
+  double target_steer = 0.0;
+  double target_speed = 0.0;
+  double output_steer = 0.0;
+  double output_speed = 0.0;
+  double current_lookahead_distance = 0.0;
+  bool has_target_command_ = false;
+  bool output_command_initialized_ = false;
   int min_searching_idx_offset;
   int max_searching_idx_offset;
   double car_heading;
@@ -111,6 +127,7 @@ private:
 
   // Timer
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr drive_output_timer_;
 
   // Subscriber
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr subscription_odom;
@@ -146,6 +163,11 @@ private:
                  const double &y2);
 
   double apply_steering_expo(double steering_angle, double steering_limit_rad);
+  Eigen::Vector3d sample_path_point_by_distance(int start_idx, double distance,
+                                                int *reached_idx = nullptr);
+  std::string selected_drive_topic() const;
+  void configure_drive_publisher();
+  void configure_drive_output_timer();
 
   void visualize_lookahead_point(Eigen::Vector3d &point);
   void visualize_current_point(Eigen::Vector3d &point);
@@ -159,7 +181,8 @@ private:
 
   double get_velocity(double steering_angle);
 
-  void publish_message(double steering_angle);
+  void update_target_command(double steering_angle);
+  void drive_output_timer_callback();
 
   void
   odom_callback(const nav_msgs::msg::Odometry::ConstSharedPtr odom_submsgObj);

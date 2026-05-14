@@ -36,6 +36,8 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("odom_topic", "/ego_racecar/odom");
   this->declare_parameter("car_refFrame", "ego_racecar/base_link");
   this->declare_parameter("drive_topic", "/drive");
+  this->declare_parameter("test_mode", false);
+  this->declare_parameter("drive_test_topic", "/drive_test");
   this->declare_parameter("path_topic", "/Path");
   this->declare_parameter("rviz_current_waypoint_topic", "/current_waypoint");
   this->declare_parameter("rviz_lookahead_waypoint_topic",
@@ -66,6 +68,11 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("speed_reduction_prev_scale", 0.0);
   this->declare_parameter("steering_expo_gain", 0.0);
   this->declare_parameter("steering_expo_curve", 2.0);
+  this->declare_parameter("drive_output_rate_hz", 50.0);
+  this->declare_parameter("steer_latest_blend", 0.10);
+  this->declare_parameter("steer_large_change_blend", 0.55);
+  this->declare_parameter("steer_blend_change_threshold_deg", 10.0);
+  this->declare_parameter("speed_latest_blend", 0.90);
   this->declare_parameter("slow_with_obs", true);
   this->declare_parameter("obs_slow_th", 3.0);
   this->declare_parameter("obs_slow_percentage", 0.6);
@@ -74,6 +81,8 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   odom_topic = this->get_parameter("odom_topic").as_string();
   car_refFrame = this->get_parameter("car_refFrame").as_string();
   drive_topic = this->get_parameter("drive_topic").as_string();
+  test_mode = this->get_parameter("test_mode").as_bool();
+  drive_test_topic = this->get_parameter("drive_test_topic").as_string();
   path_topic = this->get_parameter("path_topic").as_string();
   rviz_current_waypoint_topic =
       this->get_parameter("rviz_current_waypoint_topic").as_string();
@@ -119,6 +128,16 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
       this->get_parameter("steering_expo_gain").as_double();
   steering_expo_curve =
       this->get_parameter("steering_expo_curve").as_double();
+  drive_output_rate_hz =
+      this->get_parameter("drive_output_rate_hz").as_double();
+  steer_latest_blend =
+      this->get_parameter("steer_latest_blend").as_double();
+  steer_large_change_blend =
+      this->get_parameter("steer_large_change_blend").as_double();
+  steer_blend_change_threshold_deg =
+      this->get_parameter("steer_blend_change_threshold_deg").as_double();
+  speed_latest_blend =
+      this->get_parameter("speed_latest_blend").as_double();
   slow_with_obs = 
       this->get_parameter("slow_with_obs").as_bool();
   slow_th_dist = 
@@ -132,6 +151,13 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   y_car_world = 0.0;
   car_heading = 0.0;
   previous_speed_reduction = 0.0;
+  target_steer = 0.0;
+  target_speed = 0.0;
+  output_steer = 0.0;
+  output_speed = 0.0;
+  current_lookahead_distance = 0.0;
+  has_target_command_ = false;
+  output_command_initialized_ = false;
 
   // 경로 수신 플래그 초기화
   path_received_ = false;
@@ -156,9 +182,8 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
       path_topic, pathQos,
       std::bind(&PurePursuit::path_callback, this, std::placeholders::_1));
 
-  publisher_drive =
-      this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>(
-          drive_topic, 25);
+  configure_drive_publisher();
+  configure_drive_output_timer();
   vis_current_point_pub =
       this->create_publisher<visualization_msgs::msg::Marker>(
           rviz_current_waypoint_topic, 10);
@@ -189,6 +214,44 @@ double PurePursuit::p2pdist(const double &x1, const double &x2,
   return std::hypot(x2 - x1, y2 - y1);
 }
 
+std::string PurePursuit::selected_drive_topic() const {
+  const std::string selected_topic = test_mode ? drive_test_topic : drive_topic;
+  if (!selected_topic.empty()) {
+    return selected_topic;
+  }
+  return test_mode ? "/drive_test" : "/drive";
+}
+
+void PurePursuit::configure_drive_publisher() {
+  const std::string selected_topic = selected_drive_topic();
+  if (publisher_drive && drive_output_topic == selected_topic) {
+    return;
+  }
+
+  drive_output_topic = selected_topic;
+  publisher_drive =
+      this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>(
+          drive_output_topic, 25);
+  RCLCPP_INFO(this->get_logger(), "Drive command output topic: %s%s",
+              drive_output_topic.c_str(), test_mode ? " (test mode)" : "");
+}
+
+void PurePursuit::configure_drive_output_timer() {
+  const double selected_rate = std::clamp(drive_output_rate_hz, 1.0, 200.0);
+  if (drive_output_timer_ &&
+      std::abs(active_drive_output_rate_hz - selected_rate) <= 1e-6) {
+    return;
+  }
+
+  active_drive_output_rate_hz = selected_rate;
+  const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::duration<double>(1.0 / active_drive_output_rate_hz));
+  drive_output_timer_ = this->create_wall_timer(
+      period, std::bind(&PurePursuit::drive_output_timer_callback, this));
+  RCLCPP_INFO(this->get_logger(), "Drive command output rate: %.1f Hz",
+              active_drive_output_rate_hz);
+}
+
 // nav_msgs::Path 토픽을 통해 전달된 경로를 수신하고 내부 waypoints 구조체를
 // 갱신합니다. Path 메시지의 각 PoseStamped에서 position.x, position.y,
 // position.z를 각각 X, Y, V로 저장합니다.
@@ -207,6 +270,8 @@ void PurePursuit::path_callback(const nav_msgs::msg::Path::SharedPtr path_msg) {
   waypoints.index = 0;
   waypoints.velocity_index = -1;
   waypoints.speed_index = -1;
+  has_target_command_ = false;
+  output_command_initialized_ = false;
 
   // 새 경로의 포즈를 순회하면서 좌표와 속도(v)를 저장
   for (const auto &pose_stamped : path_msg->poses) {
@@ -346,6 +411,86 @@ int PurePursuit::advance_index_by_distance(int start_idx, double distance) {
   return path_idx_limiter(idx);
 }
 
+Eigen::Vector3d PurePursuit::sample_path_point_by_distance(
+    int start_idx, double distance, int *reached_idx) {
+  if (num_waypoints <= 0) {
+    if (reached_idx) {
+      *reached_idx = 0;
+    }
+    return Eigen::Vector3d::Zero();
+  }
+
+  int idx = path_idx_limiter(start_idx);
+  if (num_waypoints == 1 || std::abs(distance) <= 1e-6) {
+    if (reached_idx) {
+      *reached_idx = idx;
+    }
+    return Eigen::Vector3d(waypoints.X[idx], waypoints.Y[idx], 0.0);
+  }
+
+  const int direction = distance >= 0.0 ? 1 : -1;
+  double remaining_distance = std::abs(distance);
+
+  if (path_is_circular) {
+    double path_length = 0.0;
+    for (int i = 0; i < num_waypoints; ++i) {
+      const int next_idx = path_idx_limiter(i + 1);
+      path_length += p2pdist(waypoints.X[i], waypoints.X[next_idx],
+                             waypoints.Y[i], waypoints.Y[next_idx]);
+    }
+    if (path_length > 1e-6) {
+      remaining_distance = std::fmod(remaining_distance, path_length);
+    }
+  }
+
+  if (remaining_distance <= 1e-6) {
+    if (reached_idx) {
+      *reached_idx = idx;
+    }
+    return Eigen::Vector3d(waypoints.X[idx], waypoints.Y[idx], 0.0);
+  }
+
+  const int max_segments = path_is_circular ? num_waypoints : num_waypoints - 1;
+  int segments_checked = 0;
+  while (segments_checked < max_segments) {
+    const int next_idx =
+        path_is_circular ? path_idx_limiter(idx + direction) : idx + direction;
+    if (!path_is_circular && (next_idx < 0 || next_idx >= num_waypoints)) {
+      break;
+    }
+
+    const double segment_distance =
+        p2pdist(waypoints.X[idx], waypoints.X[next_idx], waypoints.Y[idx],
+                waypoints.Y[next_idx]);
+    ++segments_checked;
+
+    if (segment_distance <= 1e-6) {
+      idx = next_idx;
+      continue;
+    }
+
+    if (remaining_distance <= segment_distance) {
+      const double ratio = remaining_distance / segment_distance;
+      if (reached_idx) {
+        *reached_idx = next_idx;
+      }
+      return Eigen::Vector3d(
+          waypoints.X[idx] + ratio * (waypoints.X[next_idx] - waypoints.X[idx]),
+          waypoints.Y[idx] + ratio * (waypoints.Y[next_idx] - waypoints.Y[idx]),
+          0.0);
+    }
+
+    remaining_distance -= segment_distance;
+    idx = next_idx;
+  }
+
+  if (reached_idx) {
+    *reached_idx = path_idx_limiter(idx);
+  }
+  return Eigen::Vector3d(waypoints.X[path_idx_limiter(idx)],
+                         waypoints.Y[path_idx_limiter(idx)], 0.0);
+}
+
 void PurePursuit::get_waypoint_new() {
   if (waypoints.velocity_index < 0) { // 첫 번째 호출 시: 가장 가까운 waypoint 찾기
     int closest_idx = 0;
@@ -403,58 +548,15 @@ void PurePursuit::get_waypoint_new() {
   }
 
   // lookahead calc
-  double lookahead = std::min(
+  current_lookahead_distance = std::min(
       std::max(min_lookahead, max_lookahead * curr_velocity / lookahead_ratio),
       max_lookahead);
 
-  // lookahead_idx(waypoints.index) updater
-  int lookahead_searching_idx = waypoints.velocity_index;
-  double cur_point_to_lookahead_dist = 0.0;
-  int steps_taken = 0;
-  while (cur_point_to_lookahead_dist < lookahead) {
-    int next_lookahead_idx;
-    if (path_is_circular) {
-      if (steps_taken >= num_waypoints) {
-        // 이미 전체 경로만큼 탐색했으므로 더 이상 진행하지 않습니다.
-        break;
-      }
-      ++steps_taken;
-      next_lookahead_idx = path_idx_limiter(lookahead_searching_idx + 1);
-      if (next_lookahead_idx == lookahead_searching_idx) {
-        // 유효한 다음 포인트가 없는 경우
-        break;
-      }
-    } else {
-      if (lookahead_searching_idx >= num_waypoints - 1) {
-        // 선형 경로의 끝에 도달
-        break;
-      }
-      next_lookahead_idx = lookahead_searching_idx + 1;
-    }
-
-    const double segment_distance =
-        p2pdist(waypoints.X[lookahead_searching_idx],
-                waypoints.X[next_lookahead_idx],
-                waypoints.Y[lookahead_searching_idx],
-                waypoints.Y[next_lookahead_idx]);
-    if (segment_distance <= 1e-6) {
-      // 매우 짧거나 동일한 포인트인 경우: circular path에서는 다음 포인트로 넘어가며,
-      // linear path에서는 더 이상 진행하지 않습니다.
-      if (!path_is_circular) {
-        break;
-      }
-      lookahead_searching_idx = next_lookahead_idx;
-      continue;
-    }
-
-    cur_point_to_lookahead_dist += segment_distance;
-    lookahead_searching_idx = next_lookahead_idx;
-
-    if (!path_is_circular && lookahead_searching_idx >= num_waypoints - 1) {
-      break;
-    }
-  }
-  waypoints.index = lookahead_searching_idx;
+  // lookahead point는 waypoint 자체가 아니라 segment 위의 정확한 거리 지점을 사용합니다.
+  int reached_idx = waypoints.velocity_index;
+  lookahead_point_world = sample_path_point_by_distance(
+      waypoints.velocity_index, current_lookahead_distance, &reached_idx);
+  waypoints.index = reached_idx;
 
   waypoints.speed_index =
       advance_index_by_distance(waypoints.velocity_index,
@@ -566,8 +668,10 @@ void PurePursuit::transformandinterp_waypoint() {
   int speed_idx =
       waypoints.speed_index >= 0 ? path_idx_limiter(waypoints.speed_index)
                                  : vel_idx;
-  // World 좌표계의 타겟 포인트 지정
-  lookahead_point_world << waypoints.X[look_idx], waypoints.Y[look_idx], 0.0;
+  // lookahead_point_world는 get_waypoint_new()에서 segment 보간으로 갱신됩니다.
+  if (look_idx < 0 || look_idx >= num_waypoints) {
+    lookahead_point_world << waypoints.X[vel_idx], waypoints.Y[vel_idx], 0.0;
+  }
   current_point_world << waypoints.X[vel_idx], waypoints.Y[vel_idx], 0.0;
   speed_point_world << waypoints.X[speed_idx], waypoints.Y[speed_idx], 0.0;
 
@@ -656,8 +760,7 @@ double PurePursuit::get_velocity(double steering_angle) {
   return velocity;
 }
 
-void PurePursuit::publish_message(double steering_angle) {
-  auto drive_msgObj = ackermann_msgs::msg::AckermannDriveStamped();
+void PurePursuit::update_target_command(double steering_angle) {
   const double raw_steering = steering_angle;
   const double steering_limit_rad = to_radians(steering_limit);
   const double steering_for_velocity =
@@ -735,22 +838,21 @@ void PurePursuit::publish_message(double steering_angle) {
 
   const double expo_steering =
       apply_steering_expo(adjusted_steering, steering_limit_rad);
-  drive_msgObj.drive.steering_angle =
+  target_steer =
       std::clamp(expo_steering, -steering_limit_rad, steering_limit_rad);
   const double expo_scale =
       std::abs(adjusted_steering) > 1e-6
-          ? std::abs(drive_msgObj.drive.steering_angle) /
-                std::abs(adjusted_steering)
+          ? std::abs(target_steer) / std::abs(adjusted_steering)
           : 1.0;
 
-  curr_velocity = desired_speed;
-  drive_msgObj.drive.speed = curr_velocity;
+  target_speed = desired_speed;
   previous_speed_reduction =
-      std::max(0.0, base_desired_speed - curr_velocity);
+      std::max(0.0, base_desired_speed - target_speed);
+  has_target_command_ = true;
 
   RCLCPP_INFO(
       this->get_logger(),
-      "index: %d ... distance: %.2fm ... Speed: %.2fm/s ... Steering "
+      "index: %d ... distance: %.2fm ... TargetSpeed: %.2fm/s ... OutputSpeed: %.2fm/s ... Steering "
       "Angle: %.2f ... Raw Steering: %.2f ... SpeedIdx: %d ... "
       "SpeedOffset: %.2fm ... "
       "Steer Scale: %.2f ... "
@@ -758,12 +860,52 @@ void PurePursuit::publish_message(double steering_angle) {
       "SpeedAdj: %.2f ... PrevReduction: %.2f ... K_p: %.2f "
       "... K_i: %.2f ... velocity_percentage: %.2f",
       waypoints.index,
-      p2pdist(waypoints.X[waypoints.index], x_car_world,
-              waypoints.Y[waypoints.index], y_car_world),
-      drive_msgObj.drive.speed, to_degrees(drive_msgObj.drive.steering_angle),
+      p2pdist(lookahead_point_world(0), x_car_world,
+              lookahead_point_world(1), y_car_world),
+      target_speed, output_speed, to_degrees(target_steer),
       to_degrees(raw_steering), waypoints.speed_index,
       speed_profile_distance_offset, steer_scale, expo_scale, total_speed_adjust,
       previous_speed_reduction, K_p, K_i, velocity_percentage);
+}
+
+void PurePursuit::drive_output_timer_callback() {
+  if (!has_target_command_ || !publisher_drive) {
+    return;
+  }
+
+  const double speed_alpha = std::clamp(speed_latest_blend, 0.0, 1.0);
+
+  if (!output_command_initialized_) {
+    output_steer = target_steer;
+    output_speed = target_speed;
+    output_command_initialized_ = true;
+  } else {
+    const double steer_low_alpha = std::clamp(steer_latest_blend, 0.0, 1.0);
+    const double steer_high_alpha =
+        std::clamp(steer_large_change_blend, steer_low_alpha, 1.0);
+    const double steer_threshold_rad =
+        std::max(to_radians(steer_blend_change_threshold_deg), 1e-6);
+    const double steer_delta_abs = std::abs(target_steer - output_steer);
+    const double steer_blend_ratio =
+        std::clamp(steer_delta_abs / steer_threshold_rad, 0.0, 1.0);
+    const double steer_alpha =
+        steer_low_alpha +
+        steer_blend_ratio * (steer_high_alpha - steer_low_alpha);
+
+    output_steer += steer_alpha * (target_steer - output_steer);
+    output_speed += speed_alpha * (target_speed - output_speed);
+  }
+
+  const double steering_limit_rad = to_radians(steering_limit);
+  output_steer =
+      std::clamp(output_steer, -steering_limit_rad, steering_limit_rad);
+  output_speed = std::max(0.0, output_speed);
+  curr_velocity = output_speed;
+
+  auto drive_msgObj = ackermann_msgs::msg::AckermannDriveStamped();
+  drive_msgObj.header.stamp = this->now();
+  drive_msgObj.drive.steering_angle = output_steer;
+  drive_msgObj.drive.speed = output_speed;
 
   publisher_drive->publish(drive_msgObj);
 }
@@ -806,7 +948,7 @@ void PurePursuit::odom_callback(
   get_waypoint_new();
   transformandinterp_waypoint();
   double steering_angle = p_controller();
-  publish_message(steering_angle);
+  update_target_command(steering_angle);
 }
 
 void PurePursuit::obs_odom_callback(const geometry_msgs::msg::PointStamped msg){
@@ -832,6 +974,9 @@ void PurePursuit::obs_status_callback(const geometry_msgs::msg::PointStamped msg
 
 void PurePursuit::timer_callback() {
   // 주기적으로 파라미터 업데이트
+  drive_topic = this->get_parameter("drive_topic").as_string();
+  test_mode = this->get_parameter("test_mode").as_bool();
+  drive_test_topic = this->get_parameter("drive_test_topic").as_string();
   K_p = this->get_parameter("K_p").as_double();
   K_d = this->get_parameter("K_d").as_double();
   K_i = this->get_parameter("K_i").as_double(); // I제어기 파라미터 업데이트
@@ -864,6 +1009,18 @@ void PurePursuit::timer_callback() {
       this->get_parameter("speed_reduction_adjust").as_double();
   speed_reduction_prev_scale =
       this->get_parameter("speed_reduction_prev_scale").as_double();
+  drive_output_rate_hz =
+      this->get_parameter("drive_output_rate_hz").as_double();
+  steer_latest_blend =
+      this->get_parameter("steer_latest_blend").as_double();
+  steer_large_change_blend =
+      this->get_parameter("steer_large_change_blend").as_double();
+  steer_blend_change_threshold_deg =
+      this->get_parameter("steer_blend_change_threshold_deg").as_double();
+  speed_latest_blend =
+      this->get_parameter("speed_latest_blend").as_double();
+  configure_drive_publisher();
+  configure_drive_output_timer();
 }
 
 double PurePursuit::normalize_angle(double angle) {

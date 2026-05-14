@@ -5,6 +5,8 @@ pure_pursuit:
     car_refFrame: "ego_racecar/base_link"
     global_refFrame: "map"
     drive_topic: "/drive"
+    test_mode: False
+    drive_test_topic: "/drive_test"
     rviz_current_waypoint_topic: "/current_waypoint"
     rviz_lookahead_waypoint_topic: "/lookahead_waypoint"
     rviz_speed_offset_waypoint_topic: "/speed_offset_waypoint"
@@ -15,6 +17,11 @@ pure_pursuit:
     max_lookahead: 3.0 # lookahead when the car is going around max velocity
     lookahead_ratio: 8.0 # approximately the max velocity
     speed_profile_distance_offset: 0.0
+    drive_output_rate_hz: 50.0
+    steer_latest_blend: 0.10
+    steer_large_change_blend: 0.55
+    steer_blend_change_threshold_deg: 10.0
+    speed_latest_blend: 0.90
     K_p: 0.5
     steering_limit: 25.0
     steering_expo_gain: 0.0

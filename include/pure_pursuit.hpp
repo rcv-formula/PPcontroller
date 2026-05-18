@@ -83,6 +83,8 @@ private:
   double speed_profile_distance_offset;
   double steering_limit;
   double velocity_percentage;
+  double max_speed_limit_percentage = 1.0;
+  double observed_path_max_speed = 0.0;
   double velocity_reduce_obs = 1;
   double heading_error_gain;
   double steer_reduction_speed_threshold;
@@ -163,6 +165,8 @@ private:
                  const double &y2);
 
   double apply_steering_expo(double steering_angle, double steering_limit_rad);
+  double current_max_speed_limit() const;
+  double apply_max_speed_limit(double speed) const;
   Eigen::Vector3d sample_path_point_by_distance(int start_idx, double distance,
                                                 int *reached_idx = nullptr);
   std::string selected_drive_topic() const;

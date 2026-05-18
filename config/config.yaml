@@ -56,6 +56,8 @@ pure_pursuit:
     steering_expo_curve: 2.0
     
     velocity_percentage: 0.850 # the limit, can only do 1 lap with clean tires
+    # 최대속도 제한 비율
+    max_speed_limit_percentage: 1.0
 
     #장애물 관련 속도 감속 파라미터
     slow_with_obs: True

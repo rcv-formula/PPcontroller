@@ -27,6 +27,7 @@ pure_pursuit:
     steering_expo_gain: 0.0
     steering_expo_curve: 2.0
     velocity_percentage: 1.0 # the limit, can only do 1 lap with clean tires
+    max_speed_limit_percentage: 1.0
     steer_reduction_speed_threshold: 5.0 # m/s
     steer_reduction_constant_coef: 0.85
     steer_reduction_linear_coef: 0.03

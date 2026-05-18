@@ -57,6 +57,7 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("K_i", 0.05); // 추가된 적분 게인
   this->declare_parameter("steering_limit", 25.0);
   this->declare_parameter("velocity_percentage", 0.6);
+  this->declare_parameter("max_speed_limit_percentage", 1.0);
   this->declare_parameter("heading_error_gain", 0.0);
   this->declare_parameter("steer_reduction_speed_threshold", 5.0);
   this->declare_parameter("steer_reduction_constant_coef", 0.85);
@@ -106,6 +107,8 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   K_i = this->get_parameter("K_i").as_double(); // I제어기 파라미터 읽기
   steering_limit = this->get_parameter("steering_limit").as_double();
   velocity_percentage = this->get_parameter("velocity_percentage").as_double();
+  max_speed_limit_percentage =
+      this->get_parameter("max_speed_limit_percentage").as_double();
   heading_error_gain =
       this->get_parameter("heading_error_gain").as_double();
   steer_reduction_speed_threshold =
@@ -156,6 +159,7 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   output_steer = 0.0;
   output_speed = 0.0;
   current_lookahead_distance = 0.0;
+  observed_path_max_speed = 0.0;
   has_target_command_ = false;
   output_command_initialized_ = false;
 
@@ -212,6 +216,25 @@ double PurePursuit::to_degrees(double radians) {
 double PurePursuit::p2pdist(const double &x1, const double &x2,
                             const double &y1, const double &y2) {
   return std::hypot(x2 - x1, y2 - y1);
+}
+
+double PurePursuit::current_max_speed_limit() const {
+  if (observed_path_max_speed <= 0.0) {
+    return -1.0;
+  }
+
+  const double limit_ratio =
+      std::clamp(max_speed_limit_percentage, 0.0, 1.0);
+  return observed_path_max_speed * limit_ratio;
+}
+
+double PurePursuit::apply_max_speed_limit(double speed) const {
+  double limited_speed = std::max(0.0, speed);
+  const double speed_limit = current_max_speed_limit();
+  if (speed_limit >= 0.0) {
+    limited_speed = std::min(limited_speed, speed_limit);
+  }
+  return limited_speed;
 }
 
 std::string PurePursuit::selected_drive_topic() const {
@@ -273,6 +296,8 @@ void PurePursuit::path_callback(const nav_msgs::msg::Path::SharedPtr path_msg) {
   has_target_command_ = false;
   output_command_initialized_ = false;
 
+  double received_path_max_speed = 0.0;
+
   // 새 경로의 포즈를 순회하면서 좌표와 속도(v)를 저장
   for (const auto &pose_stamped : path_msg->poses) {
     const auto &pos = pose_stamped.pose.position;
@@ -280,9 +305,21 @@ void PurePursuit::path_callback(const nav_msgs::msg::Path::SharedPtr path_msg) {
     waypoints.Y.push_back(pos.y);
     // Path 메시지에서 z 값은 속도 정보를 담고 있다고 가정
     waypoints.V.push_back(pos.z);
+    if (std::isfinite(pos.z)) {
+      received_path_max_speed =
+          std::max(received_path_max_speed, std::max(0.0, pos.z));
+    }
   }
 
   num_waypoints = static_cast<int>(waypoints.X.size());
+  if (received_path_max_speed > observed_path_max_speed) {
+    observed_path_max_speed = received_path_max_speed;
+    const double speed_limit = current_max_speed_limit();
+    RCLCPP_INFO(this->get_logger(),
+                "Observed path max speed updated: %.2fm/s, speed limit: %.2fm/s",
+                observed_path_max_speed, speed_limit);
+  }
+
   RCLCPP_INFO(this->get_logger(),
               "Received new path with %d waypoints from topic.",
               num_waypoints);
@@ -845,9 +882,10 @@ void PurePursuit::update_target_command(double steering_angle) {
           ? std::abs(target_steer) / std::abs(adjusted_steering)
           : 1.0;
 
-  target_speed = desired_speed;
+  const double speed_before_max_limit = desired_speed;
+  target_speed = apply_max_speed_limit(desired_speed);
   previous_speed_reduction =
-      std::max(0.0, base_desired_speed - target_speed);
+      std::max(0.0, base_desired_speed - speed_before_max_limit);
   has_target_command_ = true;
 
   RCLCPP_INFO(
@@ -855,6 +893,7 @@ void PurePursuit::update_target_command(double steering_angle) {
       "index: %d ... distance: %.2fm ... TargetSpeed: %.2fm/s ... OutputSpeed: %.2fm/s ... Steering "
       "Angle: %.2f ... Raw Steering: %.2f ... SpeedIdx: %d ... "
       "SpeedOffset: %.2fm ... "
+      "MaxPathSpeed: %.2f ... MaxSpeedCap: %.2f ... "
       "Steer Scale: %.2f ... "
       "Expo Scale: %.2f ... "
       "SpeedAdj: %.2f ... PrevReduction: %.2f ... K_p: %.2f "
@@ -864,7 +903,8 @@ void PurePursuit::update_target_command(double steering_angle) {
               lookahead_point_world(1), y_car_world),
       target_speed, output_speed, to_degrees(target_steer),
       to_degrees(raw_steering), waypoints.speed_index,
-      speed_profile_distance_offset, steer_scale, expo_scale, total_speed_adjust,
+      speed_profile_distance_offset, observed_path_max_speed,
+      current_max_speed_limit(), steer_scale, expo_scale, total_speed_adjust,
       previous_speed_reduction, K_p, K_i, velocity_percentage);
 }
 
@@ -899,7 +939,7 @@ void PurePursuit::drive_output_timer_callback() {
   const double steering_limit_rad = to_radians(steering_limit);
   output_steer =
       std::clamp(output_steer, -steering_limit_rad, steering_limit_rad);
-  output_speed = std::max(0.0, output_speed);
+  output_speed = apply_max_speed_limit(output_speed);
   curr_velocity = output_speed;
 
   auto drive_msgObj = ackermann_msgs::msg::AckermannDriveStamped();
@@ -983,6 +1023,8 @@ void PurePursuit::timer_callback() {
   heading_error_gain =
       this->get_parameter("heading_error_gain").as_double();
   velocity_percentage = this->get_parameter("velocity_percentage").as_double();
+  max_speed_limit_percentage =
+      this->get_parameter("max_speed_limit_percentage").as_double();
   min_lookahead = this->get_parameter("min_lookahead").as_double();
   max_lookahead = this->get_parameter("max_lookahead").as_double();
   lookahead_ratio = this->get_parameter("lookahead_ratio").as_double();

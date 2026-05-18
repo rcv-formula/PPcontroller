@@ -5,7 +5,9 @@
 #include <Eigen/Eigen>
 #include <algorithm>
 #include <chrono>
+#include <iomanip>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -14,6 +16,8 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
+#include "std_msgs/msg/u_int16_multi_array.hpp"
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/utils.h>
 #include "visualization_msgs/msg/marker.hpp"
@@ -44,6 +48,17 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
                           "/lookahead_waypoint");
   this->declare_parameter("rviz_speed_offset_waypoint_topic",
                           "/speed_offset_waypoint");
+  this->declare_parameter("rviz_runtime_params_topic", "/pp_runtime_params");
+  this->declare_parameter("rviz_runtime_params_x", 0.0);
+  this->declare_parameter("rviz_runtime_params_y", 0.0);
+  this->declare_parameter("rviz_runtime_params_z", 1.2);
+  this->declare_parameter("rf_topic", "/rf");
+  this->declare_parameter("rf_speed_scale_channel", 6);
+  this->declare_parameter("rf_max_limit_channel", 7);
+  this->declare_parameter("rf_enable_channel", 8);
+  this->declare_parameter("rf_enable_threshold", 750);
+  this->declare_parameter("rf_value_min", 0);
+  this->declare_parameter("rf_value_max", 1500);
   this->declare_parameter("global_refFrame", "map");
   this->declare_parameter("path_is_circular", true);
   this->declare_parameter("min_lookahead", 0.5);
@@ -56,7 +71,7 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("K_d", 0.1);  // 미분 게인
   this->declare_parameter("K_i", 0.05); // 추가된 적분 게인
   this->declare_parameter("steering_limit", 25.0);
-  this->declare_parameter("velocity_percentage", 0.6);
+  this->declare_parameter("velocity_percentage", 0.85);
   this->declare_parameter("max_speed_limit_percentage", 1.0);
   this->declare_parameter("heading_error_gain", 0.0);
   this->declare_parameter("steer_reduction_speed_threshold", 5.0);
@@ -91,6 +106,23 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
       this->get_parameter("rviz_lookahead_waypoint_topic").as_string();
   rviz_speed_offset_waypoint_topic =
       this->get_parameter("rviz_speed_offset_waypoint_topic").as_string();
+  rviz_runtime_params_topic =
+      this->get_parameter("rviz_runtime_params_topic").as_string();
+  rviz_runtime_params_x =
+      this->get_parameter("rviz_runtime_params_x").as_double();
+  rviz_runtime_params_y =
+      this->get_parameter("rviz_runtime_params_y").as_double();
+  rviz_runtime_params_z =
+      this->get_parameter("rviz_runtime_params_z").as_double();
+  rf_topic = this->get_parameter("rf_topic").as_string();
+  rf_speed_scale_channel =
+      this->get_parameter("rf_speed_scale_channel").as_int();
+  rf_max_limit_channel =
+      this->get_parameter("rf_max_limit_channel").as_int();
+  rf_enable_channel = this->get_parameter("rf_enable_channel").as_int();
+  rf_enable_threshold = this->get_parameter("rf_enable_threshold").as_int();
+  rf_value_min = this->get_parameter("rf_value_min").as_int();
+  rf_value_max = this->get_parameter("rf_value_max").as_int();
   global_refFrame = this->get_parameter("global_refFrame").as_string();
   path_is_circular = this->get_parameter("path_is_circular").as_bool();
   min_lookahead = this->get_parameter("min_lookahead").as_double();
@@ -106,9 +138,12 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   K_d = this->get_parameter("K_d").as_double();
   K_i = this->get_parameter("K_i").as_double(); // I제어기 파라미터 읽기
   steering_limit = this->get_parameter("steering_limit").as_double();
-  velocity_percentage = this->get_parameter("velocity_percentage").as_double();
+  velocity_percentage =
+      std::clamp(this->get_parameter("velocity_percentage").as_double(), 0.0,
+                 1.0);
   max_speed_limit_percentage =
-      this->get_parameter("max_speed_limit_percentage").as_double();
+      std::clamp(this->get_parameter("max_speed_limit_percentage").as_double(),
+                 0.0, 1.0);
   heading_error_gain =
       this->get_parameter("heading_error_gain").as_double();
   steer_reduction_speed_threshold =
@@ -160,6 +195,7 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   output_speed = 0.0;
   current_lookahead_distance = 0.0;
   observed_path_max_speed = 0.0;
+  rf_runtime_control_active = false;
   has_target_command_ = false;
   output_command_initialized_ = false;
 
@@ -186,6 +222,9 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
       path_topic, pathQos,
       std::bind(&PurePursuit::path_callback, this, std::placeholders::_1));
 
+  subscription_rf = this->create_subscription<std_msgs::msg::UInt16MultiArray>(
+      rf_topic, 10, std::bind(&PurePursuit::rf_callback, this, _1));
+
   configure_drive_publisher();
   configure_drive_output_timer();
   vis_current_point_pub =
@@ -197,6 +236,61 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   vis_speed_point_pub =
       this->create_publisher<visualization_msgs::msg::Marker>(
           rviz_speed_offset_waypoint_topic, 10);
+  vis_runtime_params_pub =
+      this->create_publisher<visualization_msgs::msg::Marker>(
+          rviz_runtime_params_topic, 10);
+
+  runtime_param_callback_handle_ = this->add_on_set_parameters_callback(
+      [this](const std::vector<rclcpp::Parameter> &parameters) {
+        rcl_interfaces::msg::SetParametersResult result;
+        result.successful = true;
+
+        for (const auto &parameter : parameters) {
+          const std::string &name = parameter.get_name();
+          if (name != "velocity_percentage" &&
+              name != "max_speed_limit_percentage") {
+            continue;
+          }
+
+          double value = 0.0;
+          if (parameter.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
+            value = parameter.as_double();
+          } else if (parameter.get_type() ==
+                     rclcpp::ParameterType::PARAMETER_INTEGER) {
+            value = static_cast<double>(parameter.as_int());
+          } else {
+            result.successful = false;
+            result.reason = name + " must be a number in [0.0, 1.0]";
+            return result;
+          }
+
+          if (!std::isfinite(value) || value < 0.0 || value > 1.0) {
+            result.successful = false;
+            result.reason = name + " must be in [0.0, 1.0]";
+            return result;
+          }
+        }
+
+        for (const auto &parameter : parameters) {
+          const std::string &name = parameter.get_name();
+          if (name == "velocity_percentage") {
+            velocity_percentage =
+                parameter.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER
+                    ? static_cast<double>(parameter.as_int())
+                    : parameter.as_double();
+          } else if (name == "max_speed_limit_percentage") {
+            max_speed_limit_percentage =
+                parameter.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER
+                    ? static_cast<double>(parameter.as_int())
+                    : parameter.as_double();
+          }
+        }
+
+        return result;
+      });
+
+  runtime_param_visualization_timer_ = this->create_wall_timer(
+      200ms, std::bind(&PurePursuit::visualize_runtime_params, this));
 
   RCLCPP_INFO(this->get_logger(), "Pure pursuit node has been launched");
 
@@ -235,6 +329,61 @@ double PurePursuit::apply_max_speed_limit(double speed) const {
     limited_speed = std::min(limited_speed, speed_limit);
   }
   return limited_speed;
+}
+
+double PurePursuit::rf_raw_to_unit(int raw_value) const {
+  const int raw_min = std::min(rf_value_min, rf_value_max);
+  const int raw_max = std::max(rf_value_min, rf_value_max);
+  const int raw_range = raw_max - raw_min;
+  if (raw_range <= 0) {
+    return 0.0;
+  }
+
+  const double normalized =
+      static_cast<double>(raw_value - raw_min) / static_cast<double>(raw_range);
+  return std::clamp(normalized, 0.0, 1.0);
+}
+
+bool PurePursuit::read_rf_channel(
+    const std_msgs::msg::UInt16MultiArray &rf_msg, int channel_index,
+    int *raw_value) const {
+  if (channel_index < 0 ||
+      channel_index >= static_cast<int>(rf_msg.data.size())) {
+    return false;
+  }
+
+  if (raw_value) {
+    *raw_value = static_cast<int>(rf_msg.data[channel_index]);
+  }
+  return true;
+}
+
+void PurePursuit::set_runtime_percentages(double velocity_scale,
+                                          double max_speed_limit_scale) {
+  velocity_scale = std::clamp(velocity_scale, 0.0, 1.0);
+  max_speed_limit_scale = std::clamp(max_speed_limit_scale, 0.0, 1.0);
+
+  constexpr double kUpdateDeadband = 0.001;
+  if (std::abs(velocity_scale - velocity_percentage) < kUpdateDeadband &&
+      std::abs(max_speed_limit_scale - max_speed_limit_percentage) <
+          kUpdateDeadband) {
+    return;
+  }
+
+  const auto result = this->set_parameters_atomically(
+      {rclcpp::Parameter("velocity_percentage", velocity_scale),
+       rclcpp::Parameter("max_speed_limit_percentage", max_speed_limit_scale)});
+
+  if (!result.successful) {
+    RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 1000,
+        "Failed to apply RF runtime percentages: %s",
+        result.reason.c_str());
+    return;
+  }
+
+  velocity_percentage = velocity_scale;
+  max_speed_limit_percentage = max_speed_limit_scale;
 }
 
 std::string PurePursuit::selected_drive_topic() const {
@@ -380,6 +529,37 @@ void PurePursuit::visualize_speed_point(Eigen::Vector3d &point) {
   marker.pose.position.y = point(1);
   marker.id = 1;
   vis_speed_point_pub->publish(marker);
+}
+
+void PurePursuit::visualize_runtime_params() {
+  if (!vis_runtime_params_pub) {
+    return;
+  }
+
+  auto marker = visualization_msgs::msg::Marker();
+  marker.header.frame_id = global_refFrame.empty() ? "map" : global_refFrame;
+  marker.header.stamp = this->now();
+  marker.ns = "pure_pursuit_runtime_params";
+  marker.id = 1;
+  marker.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
+  marker.action = visualization_msgs::msg::Marker::ADD;
+  marker.pose.position.x = rviz_runtime_params_x;
+  marker.pose.position.y = rviz_runtime_params_y;
+  marker.pose.position.z = rviz_runtime_params_z;
+  marker.pose.orientation.w = 1.0;
+  marker.scale.z = 0.35;
+  marker.color.a = 1.0;
+  marker.color.r = 0.1;
+  marker.color.g = 1.0;
+  marker.color.b = 0.8;
+
+  std::ostringstream text;
+  text << std::fixed << std::setprecision(2)
+       << "speed scale: " << velocity_percentage << '\n'
+       << "max limit: " << max_speed_limit_percentage;
+  marker.text = text.str();
+
+  vis_runtime_params_pub->publish(marker);
 }
 
 int PurePursuit::path_idx_limiter(int idx) {
@@ -1012,19 +1192,86 @@ void PurePursuit::obs_status_callback(const geometry_msgs::msg::PointStamped msg
 
 }
 
+void PurePursuit::rf_callback(
+    const std_msgs::msg::UInt16MultiArray::ConstSharedPtr rf_msg) {
+  if (!rf_msg) {
+    return;
+  }
+
+  int enable_raw = 0;
+  if (!read_rf_channel(*rf_msg, rf_enable_channel, &enable_raw)) {
+    rf_runtime_control_active = false;
+    RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 1000,
+        "RF enable channel index %d is unavailable. /rf size: %zu",
+        rf_enable_channel, rf_msg->data.size());
+    return;
+  }
+
+  const bool should_apply_rf = enable_raw > rf_enable_threshold;
+  if (!should_apply_rf) {
+    if (rf_runtime_control_active) {
+      RCLCPP_INFO(this->get_logger(),
+                  "RF runtime control disabled by channel index %d: %d <= %d",
+                  rf_enable_channel, enable_raw, rf_enable_threshold);
+    }
+    rf_runtime_control_active = false;
+    return;
+  }
+
+  int speed_scale_raw = 0;
+  int max_limit_raw = 0;
+  if (!read_rf_channel(*rf_msg, rf_speed_scale_channel, &speed_scale_raw) ||
+      !read_rf_channel(*rf_msg, rf_max_limit_channel, &max_limit_raw)) {
+    RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 1000,
+        "RF parameter channel is unavailable. speed index: %d, max index: %d, "
+        "/rf size: %zu",
+        rf_speed_scale_channel, rf_max_limit_channel, rf_msg->data.size());
+    return;
+  }
+
+  if (!rf_runtime_control_active) {
+    RCLCPP_INFO(this->get_logger(),
+                "RF runtime control enabled by channel index %d: %d > %d",
+                rf_enable_channel, enable_raw, rf_enable_threshold);
+  }
+  rf_runtime_control_active = true;
+
+  set_runtime_percentages(rf_raw_to_unit(speed_scale_raw),
+                          rf_raw_to_unit(max_limit_raw));
+}
+
 void PurePursuit::timer_callback() {
   // 주기적으로 파라미터 업데이트
   drive_topic = this->get_parameter("drive_topic").as_string();
   test_mode = this->get_parameter("test_mode").as_bool();
   drive_test_topic = this->get_parameter("drive_test_topic").as_string();
+  rviz_runtime_params_x =
+      this->get_parameter("rviz_runtime_params_x").as_double();
+  rviz_runtime_params_y =
+      this->get_parameter("rviz_runtime_params_y").as_double();
+  rviz_runtime_params_z =
+      this->get_parameter("rviz_runtime_params_z").as_double();
+  rf_speed_scale_channel =
+      this->get_parameter("rf_speed_scale_channel").as_int();
+  rf_max_limit_channel =
+      this->get_parameter("rf_max_limit_channel").as_int();
+  rf_enable_channel = this->get_parameter("rf_enable_channel").as_int();
+  rf_enable_threshold = this->get_parameter("rf_enable_threshold").as_int();
+  rf_value_min = this->get_parameter("rf_value_min").as_int();
+  rf_value_max = this->get_parameter("rf_value_max").as_int();
   K_p = this->get_parameter("K_p").as_double();
   K_d = this->get_parameter("K_d").as_double();
   K_i = this->get_parameter("K_i").as_double(); // I제어기 파라미터 업데이트
   heading_error_gain =
       this->get_parameter("heading_error_gain").as_double();
-  velocity_percentage = this->get_parameter("velocity_percentage").as_double();
+  velocity_percentage =
+      std::clamp(this->get_parameter("velocity_percentage").as_double(), 0.0,
+                 1.0);
   max_speed_limit_percentage =
-      this->get_parameter("max_speed_limit_percentage").as_double();
+      std::clamp(this->get_parameter("max_speed_limit_percentage").as_double(),
+                 0.0, 1.0);
   min_lookahead = this->get_parameter("min_lookahead").as_double();
   max_lookahead = this->get_parameter("max_lookahead").as_double();
   lookahead_ratio = this->get_parameter("lookahead_ratio").as_double();

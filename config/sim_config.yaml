@@ -10,6 +10,17 @@ pure_pursuit:
     rviz_current_waypoint_topic: "/current_waypoint"
     rviz_lookahead_waypoint_topic: "/lookahead_waypoint"
     rviz_speed_offset_waypoint_topic: "/speed_offset_waypoint"
+    rviz_runtime_params_topic: "/pp_runtime_params"
+    rviz_runtime_params_x: 0.0
+    rviz_runtime_params_y: 0.0
+    rviz_runtime_params_z: 1.2
+    rf_topic: "/rf"
+    rf_speed_scale_channel: 6
+    rf_max_limit_channel: 7
+    rf_enable_channel: 8
+    rf_enable_threshold: 750
+    rf_value_min: 0
+    rf_value_max: 1500
 
     # Pure Pursuit Parameters
     # Lookahead is computed using the following: lookahead = min(max(min_lookahead, max_lookahead * curr_velocity / lookahead_ratio), max_lookahead);
@@ -26,7 +37,7 @@ pure_pursuit:
     steering_limit: 25.0
     steering_expo_gain: 0.0
     steering_expo_curve: 2.0
-    velocity_percentage: 1.0 # the limit, can only do 1 lap with clean tires
+    velocity_percentage: 1.0
     max_speed_limit_percentage: 1.0
     steer_reduction_speed_threshold: 5.0 # m/s
     steer_reduction_constant_coef: 0.85

@@ -10,6 +10,21 @@ pure_pursuit:
     rviz_current_waypoint_topic: "/current_waypoint"
     rviz_lookahead_waypoint_topic: "/lookahead_waypoint"
     rviz_speed_offset_waypoint_topic: "/speed_offset_waypoint"
+    rviz_runtime_params_topic: "/pp_runtime_params"
+    rviz_runtime_params_x: 0.0
+    rviz_runtime_params_y: 0.0
+    rviz_runtime_params_z: 1.2
+
+    # /rf(std_msgs/UInt16MultiArray) 기반 실시간 속도 파라미터 조절
+    # channel 값은 /rf.data[]의 0-based index입니다. 예: CH7 -> 6, CH8 -> 7
+    rf_topic: "/rf"
+    rf_speed_scale_channel: 6
+    rf_max_limit_channel: 7
+    rf_enable_channel: 8
+    rf_enable_threshold: 750
+    rf_value_min: 0
+    rf_value_max: 1500
+
     path_is_circular: True
     # path_is_circular를 false로 해야 로컬패스 가능
     
@@ -55,8 +70,9 @@ pure_pursuit:
     steering_expo_gain: 0.35
     steering_expo_curve: 2.0
     
-    velocity_percentage: 0.850 # the limit, can only do 1 lap with clean tires
-    # 최대속도 제한 비율
+    # 기본 속도 배수. 런타임에는 ros2 param set으로 즉시 변경 가능
+    velocity_percentage: 0.850
+    # 지금까지 수신한 path speed(z)의 최대값에 곱하는 최종 속도 제한 비율
     max_speed_limit_percentage: 1.0
 
     #장애물 관련 속도 감속 파라미터

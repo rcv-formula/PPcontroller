@@ -15,6 +15,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/u_int16_multi_array.hpp"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
@@ -74,6 +75,11 @@ private:
   std::string rviz_current_waypoint_topic;
   std::string rviz_lookahead_waypoint_topic;
   std::string rviz_speed_offset_waypoint_topic;
+  std::string rviz_runtime_params_topic;
+  std::string rf_topic;
+  double rviz_runtime_params_x = 0.0;
+  double rviz_runtime_params_y = 0.0;
+  double rviz_runtime_params_z = 1.2;
   double K_p;
   double K_d;
   double K_i; // PD 제어를 위한 미분(derivative) 게인
@@ -98,6 +104,13 @@ private:
   double previous_speed_reduction;
   double curr_velocity = 0.0;
   bool test_mode = false;
+  int rf_speed_scale_channel = 6;
+  int rf_max_limit_channel = 7;
+  int rf_enable_channel = 8;
+  int rf_enable_threshold = 750;
+  int rf_value_min = 0;
+  int rf_value_max = 1500;
+  bool rf_runtime_control_active = false;
   double drive_output_rate_hz = 50.0;
   double active_drive_output_rate_hz = 0.0;
   double steer_latest_blend = 0.10;
@@ -130,6 +143,9 @@ private:
   // Timer
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::TimerBase::SharedPtr drive_output_timer_;
+  rclcpp::TimerBase::SharedPtr runtime_param_visualization_timer_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
+      runtime_param_callback_handle_;
 
   // Subscriber
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr subscription_odom;
@@ -138,6 +154,8 @@ private:
 
   // Path subscriber: nav_msgs::Path 타입의 경로 메시지를 수신합니다.
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr subscription_path;
+  rclcpp::Subscription<std_msgs::msg::UInt16MultiArray>::SharedPtr
+      subscription_rf;
 
   // Publisher
   rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr
@@ -148,6 +166,8 @@ private:
       vis_lookahead_point_pub;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr
       vis_speed_point_pub;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr
+      vis_runtime_params_pub;
 
   // PD 제어를 위한 이전 오차와 이전 시간 (미분 항 계산용)
   double prev_error;
@@ -167,6 +187,11 @@ private:
   double apply_steering_expo(double steering_angle, double steering_limit_rad);
   double current_max_speed_limit() const;
   double apply_max_speed_limit(double speed) const;
+  double rf_raw_to_unit(int raw_value) const;
+  bool read_rf_channel(const std_msgs::msg::UInt16MultiArray &rf_msg,
+                       int channel_index, int *raw_value) const;
+  void set_runtime_percentages(double velocity_scale,
+                               double max_speed_limit_scale);
   Eigen::Vector3d sample_path_point_by_distance(int start_idx, double distance,
                                                 int *reached_idx = nullptr);
   std::string selected_drive_topic() const;
@@ -176,6 +201,7 @@ private:
   void visualize_lookahead_point(Eigen::Vector3d &point);
   void visualize_current_point(Eigen::Vector3d &point);
   void visualize_speed_point(Eigen::Vector3d &point);
+  void visualize_runtime_params();
 
   void get_waypoint();
 
@@ -192,6 +218,7 @@ private:
   odom_callback(const nav_msgs::msg::Odometry::ConstSharedPtr odom_submsgObj);
   void obs_odom_callback(const geometry_msgs::msg::PointStamped msg);
   void obs_status_callback(const geometry_msgs::msg::PointStamped msg);
+  void rf_callback(const std_msgs::msg::UInt16MultiArray::ConstSharedPtr rf_msg);
 
   void timer_callback();
 

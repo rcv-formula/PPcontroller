@@ -22,8 +22,8 @@ pure_pursuit:
     rf_max_limit_channel: 7
     rf_enable_channel: 8
     rf_enable_threshold: 750
-    rf_value_min: 0
-    rf_value_max: 1500
+    rf_value_min: 1000
+    rf_value_max: 2000
 
     path_is_circular: True
     # path_is_circular를 false로 해야 로컬패스 가능
@@ -43,9 +43,9 @@ pure_pursuit:
     drive_output_rate_hz: 50.0
 
     #steer잔떨림 제거 필터
-    steer_latest_blend: 0.10   #적은 스티어링 변화에서 1주기당 새로운 값 반영 비율, 높을수록 빠른 반영 낮을수록 잔떨림 적어짐
-    steer_large_change_blend: 0.23  #높은 스티어링 변화에서 1주기당 새로운 값 반영 비율, 높을수록 빠른 반영 낮을수록 잔떨림 적어짐
-    steer_blend_change_threshold_deg: 15.0  #낮은 스티어링/높은 스티어링 변화량 threash hold, 실제 반영은 이 값을 기준으로 부드럽게 blend비율을 반영함.
+    steer_latest_blend: 0.01   #적은 스티어링 변화에서 1주기당 새로운 값 반영 비율, 높을수록 빠른 반영 낮을수록 잔떨림 적어짐
+    steer_large_change_blend: 0.15  #높은 스티어링 변화에서 1주기당 새로운 값 반영 비율, 높을수록 빠른 반영 낮을수록 잔떨림 적어짐
+    steer_blend_change_threshold_deg: 20.0  #낮은 스티어링/높은 스티어링 변화량 threash hold, 실제 반영은 이 값을 기준으로 부드럽게 blend비율을 반영함.
 
     #speed 잔떨림 제거 필더
     speed_latest_blend: 0.40

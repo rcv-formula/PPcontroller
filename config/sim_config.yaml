@@ -29,6 +29,8 @@ pure_pursuit:
     lookahead_ratio: 8.0 # approximately the max velocity
     speed_profile_distance_offset: 0.0
     drive_output_rate_hz: 50.0
+    publish_drive_on_odom: True
+    visualization_rate_hz: 20.0
     steer_latest_blend: 0.10
     steer_large_change_blend: 0.55
     steer_blend_change_threshold_deg: 10.0

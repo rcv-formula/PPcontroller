@@ -36,6 +36,8 @@ private:
     std::vector<double> X;
     std::vector<double> Y;
     std::vector<double> V;
+    std::vector<double> segment_lengths;
+    double path_length = 0.0;
     // 현재 lookahead waypoint 인덱스
     int index = 0;
     // 현재 차량 위치에 가장 가까운 waypoint 인덱스
@@ -136,6 +138,8 @@ private:
   bool slow_with_obs;
   double slow_th_dist;
   double slow_amount;
+  double visualization_rate_hz = 20.0;
+  bool publish_drive_on_odom = true;
 
   bool emergency_breaking = false;
   std::string lane_number = "left"; // "left" 또는 "right"
@@ -175,7 +179,9 @@ private:
   // PD 제어를 위한 이전 오차와 이전 시간 (미분 항 계산용)
   double prev_error;
   rclcpp::Time prev_time;
+  rclcpp::Time last_visualization_time_;
   double integral_error;
+  bool visualization_time_initialized_ = false;
 
   // 경로 수신 여부 플래그. 초기에는 false이며, path_callback 에서 유효한
   // 경로를 수신하면 true 로 설정됩니다. 경로가 설정되기 전에는
@@ -185,7 +191,8 @@ private:
   double to_radians(double degrees);
   double to_degrees(double radians);
   double p2pdist(const double &x1, const double &x2, const double &y1,
-                 const double &y2);
+                 const double &y2) const;
+  double adjacent_segment_length(int idx, int next_idx, int direction) const;
 
   double apply_steering_expo(double steering_angle, double steering_limit_rad);
   double current_max_speed_limit() const;
@@ -205,6 +212,7 @@ private:
   void visualize_current_point(Eigen::Vector3d &point);
   void visualize_speed_point(Eigen::Vector3d &point);
   void visualize_runtime_params();
+  bool should_publish_visualization();
 
   void get_waypoint();
 
@@ -231,7 +239,7 @@ private:
 
   void get_waypoint_new();
 
-  int path_idx_limiter(int idx);
+  int path_idx_limiter(int idx) const;
   int advance_index_by_distance(int start_idx, double distance);
   double normalize_angle(double angle);
 };

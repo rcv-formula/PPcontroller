@@ -31,7 +31,7 @@ pure_pursuit:
     # Pure Pursuit Parameters
     # Lookahead is computed using the following: lookahead = min(max(min_lookahead, max_lookahead * curr_velocity / lookahead_ratio), max_lookahead);
     # min_lookahead: 0.5 # for square track
-    min_lookahead: 0.5 # for larger track
+    min_lookahead: 1.5 # for larger track
     max_lookahead: 2.5 # lookahead when the car is going around max velocity
     lookahead_ratio: 7.5 # approximately the max velociy
     
@@ -40,16 +40,18 @@ pure_pursuit:
     speed_profile_distance_offset: 0.5
 
     #보간된 drive command를 출력 hz
-    drive_output_rate_hz: 50.0
+    drive_output_rate_hz: 100.0
+    publish_drive_on_odom: True
+    visualization_rate_hz: 20.0
 
     #steer잔떨림 제거 필터
-    steer_latest_blend: 0.01   #적은 스티어링 변화에서 1주기당 새로운 값 반영 비율, 높을수록 빠른 반영 낮을수록 잔떨림 적어짐
-    steer_large_change_blend: 0.15  #높은 스티어링 변화에서 1주기당 새로운 값 반영 비율, 높을수록 빠른 반영 낮을수록 잔떨림 적어짐
+    steer_latest_blend: 0.10   #적은 스티어링 변화에서 1주기당 새로운 값 반영 비율, 높을수록 빠른 반영 낮을수록 잔떨림 적어짐
+    steer_large_change_blend: 0.55  #높은 스티어링 변화에서 1주기당 새로운 값 반영 비율, 높을수록 빠른 반영 낮을수록 잔떨림 적어짐
     steer_blend_change_threshold_deg: 20.0  #낮은 스티어링/높은 스티어링 변화량 threash hold, 실제 반영은 이 값을 기준으로 부드럽게 blend비율을 반영함.
     # 고속에서는 위 조향 필터 alpha를 최종값까지 서서히 올려 필터링을 줄임
-    steer_speed_filter_start_speed: 3.0  # m/s, 이 속도부터 고속 필터 완화 시작
-    steer_speed_filter_end_speed: 4.0  # m/s, 이 속도 이상에서는 아래 최종 blend 적용
-    steer_speed_filter_final_blend: 0.70  # 고속 최종 조향 blend, 높을수록 응답 빠름
+    steer_speed_filter_start_speed: 2.5  # m/s, 이 속도부터 고속 필터 완화 시작
+    steer_speed_filter_end_speed: 3.0  # m/s, 이 속도 이상에서는 아래 최종 blend 적용
+    steer_speed_filter_final_blend: 0.80  # 고속 최종 조향 blend, 높을수록 응답 빠름
 
     #speed 잔떨림 제거 필더
     speed_latest_blend: 0.40
@@ -61,18 +63,18 @@ pure_pursuit:
     #PID, Heding error계수
     min_searching_idx_offset: 10
     max_searching_idx_offset: 40
-    K_p: 0.51
+    K_p: 0.45
     K_d: 0.035
     K_i: 0.000
 
-    heading_error_gain: 0.45
+    heading_error_gain: 0.42
     steering_limit: 50.0
 
     # 서보-링크 비선형 보정용 steering expo
     # gain > 0: 극단부 조향을 더 밀어줌, gain < 0: 극단부 조향을 눌러줌
     # curve가 클수록 중앙부 영향은 줄고 끝단부 영향이 커짐
     steering_expo_gain: 0.35
-    steering_expo_curve: 2.0
+    steering_expo_curve: 3.0
     
     # 기본 속도 배수. 런타임에는 ros2 param set으로 즉시 변경 가능
     velocity_percentage: 0.850
@@ -86,8 +88,8 @@ pure_pursuit:
 
 
     #고속 안정성용 파라미터(인공홀 기준)
-    steer_reduction_speed_threshold: 4.0 # 조향감소 시작 속도m/s
-    steer_reduction_constant_coef: 0.90  #조향감소 상수계수(스케일)
+    steer_reduction_speed_threshold: 3.0 # 조향감소 시작 속도m/s
+    steer_reduction_constant_coef: 0.75  #조향감소 상수계수(스케일)
     steer_reduction_linear_coef: 0.05  #조향감소 선형계수(스케일)
     steer_reduction_min_scale: 0.5  #조향감소 하한치(스케일)
     speed_reduction_steer_angle_deg: 5.0  #속도 감소가 시작되는 감소량(deg)

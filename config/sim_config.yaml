@@ -32,6 +32,9 @@ pure_pursuit:
     steer_latest_blend: 0.10
     steer_large_change_blend: 0.55
     steer_blend_change_threshold_deg: 10.0
+    steer_speed_filter_start_speed: 3.0
+    steer_speed_filter_end_speed: 5.0
+    steer_speed_filter_final_blend: 0.30
     speed_latest_blend: 0.90
     K_p: 0.5
     steering_limit: 25.0

@@ -88,6 +88,9 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("steer_latest_blend", 0.10);
   this->declare_parameter("steer_large_change_blend", 0.55);
   this->declare_parameter("steer_blend_change_threshold_deg", 10.0);
+  this->declare_parameter("steer_speed_filter_start_speed", 0.0);
+  this->declare_parameter("steer_speed_filter_end_speed", 0.0);
+  this->declare_parameter("steer_speed_filter_final_blend", 0.10);
   this->declare_parameter("speed_latest_blend", 0.90);
   this->declare_parameter("slow_with_obs", true);
   this->declare_parameter("obs_slow_th", 3.0);
@@ -174,6 +177,12 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
       this->get_parameter("steer_large_change_blend").as_double();
   steer_blend_change_threshold_deg =
       this->get_parameter("steer_blend_change_threshold_deg").as_double();
+  steer_speed_filter_start_speed =
+      this->get_parameter("steer_speed_filter_start_speed").as_double();
+  steer_speed_filter_end_speed =
+      this->get_parameter("steer_speed_filter_end_speed").as_double();
+  steer_speed_filter_final_blend =
+      this->get_parameter("steer_speed_filter_final_blend").as_double();
   speed_latest_blend =
       this->get_parameter("speed_latest_blend").as_double();
   slow_with_obs = 
@@ -1108,9 +1117,30 @@ void PurePursuit::drive_output_timer_callback() {
     const double steer_delta_abs = std::abs(target_steer - output_steer);
     const double steer_blend_ratio =
         std::clamp(steer_delta_abs / steer_threshold_rad, 0.0, 1.0);
-    const double steer_alpha =
+    const double base_steer_alpha =
         steer_low_alpha +
         steer_blend_ratio * (steer_high_alpha - steer_low_alpha);
+    double steer_alpha = base_steer_alpha;
+
+    const double command_speed_abs = std::abs(target_speed);
+    const double speed_start =
+        std::max(0.0, steer_speed_filter_start_speed);
+    const double speed_end = std::max(0.0, steer_speed_filter_end_speed);
+    double speed_blend_ratio = 0.0;
+    if (speed_end > speed_start) {
+      speed_blend_ratio =
+          std::clamp((command_speed_abs - speed_start) /
+                         (speed_end - speed_start),
+                     0.0, 1.0);
+    } else if (speed_start > 0.0 && command_speed_abs >= speed_start) {
+      speed_blend_ratio = 1.0;
+    }
+
+    if (speed_blend_ratio > 0.0) {
+      const double speed_final_alpha =
+          std::clamp(steer_speed_filter_final_blend, steer_alpha, 1.0);
+      steer_alpha += speed_blend_ratio * (speed_final_alpha - steer_alpha);
+    }
 
     output_steer += steer_alpha * (target_steer - output_steer);
     output_speed += speed_alpha * (target_speed - output_speed);
@@ -1306,6 +1336,12 @@ void PurePursuit::timer_callback() {
       this->get_parameter("steer_large_change_blend").as_double();
   steer_blend_change_threshold_deg =
       this->get_parameter("steer_blend_change_threshold_deg").as_double();
+  steer_speed_filter_start_speed =
+      this->get_parameter("steer_speed_filter_start_speed").as_double();
+  steer_speed_filter_end_speed =
+      this->get_parameter("steer_speed_filter_end_speed").as_double();
+  steer_speed_filter_final_blend =
+      this->get_parameter("steer_speed_filter_final_blend").as_double();
   speed_latest_blend =
       this->get_parameter("speed_latest_blend").as_double();
   configure_drive_publisher();

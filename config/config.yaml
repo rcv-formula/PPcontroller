@@ -31,9 +31,9 @@ pure_pursuit:
     # Pure Pursuit Parameters
     # Lookahead is computed using the following: lookahead = min(max(min_lookahead, max_lookahead * curr_velocity / lookahead_ratio), max_lookahead);
     # min_lookahead: 0.5 # for square track
-    min_lookahead: 1.2 # for larger track
+    min_lookahead: 0.5 # for larger track
     max_lookahead: 2.5 # lookahead when the car is going around max velocity
-    lookahead_ratio: 10.5 # approximately the max velociy
+    lookahead_ratio: 7.5 # approximately the max velociy
     
     # 속도 프로파일을 읽는 waypoint의 거리 offset(m).
     # 양수: 앞쪽 path speed(z)를 미리 읽음, 음수: 뒤쪽 speed(z)를 읽음, 0: 현재 closest 기준
@@ -46,6 +46,10 @@ pure_pursuit:
     steer_latest_blend: 0.01   #적은 스티어링 변화에서 1주기당 새로운 값 반영 비율, 높을수록 빠른 반영 낮을수록 잔떨림 적어짐
     steer_large_change_blend: 0.15  #높은 스티어링 변화에서 1주기당 새로운 값 반영 비율, 높을수록 빠른 반영 낮을수록 잔떨림 적어짐
     steer_blend_change_threshold_deg: 20.0  #낮은 스티어링/높은 스티어링 변화량 threash hold, 실제 반영은 이 값을 기준으로 부드럽게 blend비율을 반영함.
+    # 고속에서는 위 조향 필터 alpha를 최종값까지 서서히 올려 필터링을 줄임
+    steer_speed_filter_start_speed: 3.0  # m/s, 이 속도부터 고속 필터 완화 시작
+    steer_speed_filter_end_speed: 4.0  # m/s, 이 속도 이상에서는 아래 최종 blend 적용
+    steer_speed_filter_final_blend: 0.70  # 고속 최종 조향 blend, 높을수록 응답 빠름
 
     #speed 잔떨림 제거 필더
     speed_latest_blend: 0.40

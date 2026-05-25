@@ -116,6 +116,9 @@ private:
   double steer_latest_blend = 0.10;
   double steer_large_change_blend = 0.55;
   double steer_blend_change_threshold_deg = 10.0;
+  double steer_speed_filter_start_speed = 0.0;
+  double steer_speed_filter_end_speed = 0.0;
+  double steer_speed_filter_final_blend = 0.10;
   double speed_latest_blend = 0.90;
   double target_steer = 0.0;
   double target_speed = 0.0;

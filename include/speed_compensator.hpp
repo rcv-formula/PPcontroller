@@ -32,6 +32,8 @@ private:
   double activation_speed_ = 4.0;    // 이 실측 속도(m/s) 이상에서만 보정 동작
   double activation_ramp_range_ = 1.0; // 보정 비율을 0->1로 올리는 속도 구간(m/s)
   double decel_boost_gain_ = 0.0;    // 감속 보정 비례 게인 (오차 1m/s당 추가 감속량)
+  double decel_boost_offset_ = 0.0;  // 감속 보정 절대량(m/s). 오차 크기와 무관하게 적용
+  double decel_boost_offset_ramp_ = 0.5; // 절대량이 0->full로 걸리는 오차 구간(m/s)
   double accel_boost_gain_ = 0.0;    // 가속 보정 비례 게인 (오차 1m/s당 추가 가속량)
   double decel_boost_max_ = 3.0;     // 최대 추가 감속량(m/s)
   double accel_boost_max_ = 2.0;     // 최대 추가 가속량(m/s)

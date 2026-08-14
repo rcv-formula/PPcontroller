@@ -116,6 +116,12 @@ speed_compensator:
     activation_ramp_range: 1.0
     # 감속 중(실측 > 목표): 추가감속량 = decel_boost_gain * (실측 - 목표)
     decel_boost_gain: 0.5
+    # 감속 시 오차 크기와 무관하게 항상 추가로 빼는 절대 감속량(m/s).
+    # 비례항 없이 절대량만 쓰려면 decel_boost_gain을 0으로 설정
+    decel_boost_offset: 0.0
+    # 절대 감속량이 0->full로 걸리는 오차 구간(m/s). 오차가 데드밴드를 넘기
+    # 시작할 때/목표 도달로 빠질 때 출력 점프를 막음
+    decel_boost_offset_ramp: 0.5
     # 가속 중(실측 < 목표): 추가가속량 = accel_boost_gain * (목표 - 실측)
     accel_boost_gain: 0.3
     # 보정량 상한(m/s)

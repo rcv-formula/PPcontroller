@@ -66,6 +66,8 @@ speed_compensator:
     activation_speed: 4.0
     activation_ramp_range: 1.0
     decel_boost_gain: 0.5
+    decel_boost_offset: 0.0
+    decel_boost_offset_ramp: 0.5
     accel_boost_gain: 0.3
     decel_boost_max: 3.0
     accel_boost_max: 2.0

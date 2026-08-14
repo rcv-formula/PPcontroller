@@ -18,6 +18,8 @@ constexpr const char *kRuntimeParameterNames[] = {
     "activation_speed",
     "activation_ramp_range",
     "decel_boost_gain",
+    "decel_boost_offset",
+    "decel_boost_offset_ramp",
     "accel_boost_gain",
     "decel_boost_max",
     "accel_boost_max",
@@ -38,6 +40,8 @@ SpeedCompensator::SpeedCompensator() : Node("speed_compensator") {
   this->declare_parameter("activation_speed", 4.0);
   this->declare_parameter("activation_ramp_range", 1.0);
   this->declare_parameter("decel_boost_gain", 0.0);
+  this->declare_parameter("decel_boost_offset", 0.0);
+  this->declare_parameter("decel_boost_offset_ramp", 0.5);
   this->declare_parameter("accel_boost_gain", 0.0);
   this->declare_parameter("decel_boost_max", 3.0);
   this->declare_parameter("accel_boost_max", 2.0);
@@ -123,6 +127,10 @@ bool SpeedCompensator::apply_runtime_parameter(
     activation_ramp_range_ = std::max(0.0, parameter.as_double());
   } else if (name == "decel_boost_gain") {
     decel_boost_gain_ = std::max(0.0, parameter.as_double());
+  } else if (name == "decel_boost_offset") {
+    decel_boost_offset_ = std::max(0.0, parameter.as_double());
+  } else if (name == "decel_boost_offset_ramp") {
+    decel_boost_offset_ramp_ = std::max(0.0, parameter.as_double());
   } else if (name == "accel_boost_gain") {
     accel_boost_gain_ = std::max(0.0, parameter.as_double());
   } else if (name == "decel_boost_max") {
@@ -175,9 +183,18 @@ double SpeedCompensator::compensate_speed(double target_speed) const {
   }
 
   if (speed_error > 0.0) {
-    // 감속 중: 오차에 비례해 더 감속
+    // 감속 중: 비례항(gain * 오차) + 절대량(offset)을 더 감속.
+    // gain을 0으로 두면 오차 크기와 무관한 절대 감속량만 적용됨.
+    // 절대량은 오차가 데드밴드를 막 넘거나 목표에 도달해 빠질 때 출력이
+    // 점프하지 않도록 offset_ramp 오차 구간에 걸쳐 0->full로 부드럽게 적용
+    const double offset_scale =
+        decel_boost_offset_ramp_ > 1e-6
+            ? std::min(effective_error / decel_boost_offset_ramp_, 1.0)
+            : 1.0;
     const double boost = std::min(
-        decel_boost_gain_ * effective_error * activation_ratio,
+        (decel_boost_gain_ * effective_error +
+         decel_boost_offset_ * offset_scale) *
+            activation_ratio,
         decel_boost_max_);
     return std::max(0.0, target_speed - boost);
   }

@@ -23,7 +23,8 @@ foreach(PACKAGE
   visualization_msgs
   eigen3_cmake_module
   Eigen3
-  tf2)
+  tf2
+  vesc_msgs)
 
   find_package(${PACKAGE} REQUIRED)
 
@@ -43,6 +44,12 @@ ament_target_dependencies(pure_pursuit
   rclcpp geometry_msgs ackermann_msgs nav_msgs sensor_msgs std_msgs visualization_msgs tf2 eigen3_cmake_module Eigen3
 )
 
+add_executable(speed_compensator src/speed_compensator.cpp)
+
+ament_target_dependencies(speed_compensator
+  rclcpp ackermann_msgs nav_msgs vesc_msgs
+)
+
 add_executable(waypoint_visualizer src/waypoint_visualizer.cpp)
 
 ament_target_dependencies(waypoint_visualizer
@@ -52,6 +59,7 @@ ament_target_dependencies(waypoint_visualizer
 # Install Cpp executables
 install(TARGETS
   pure_pursuit
+  speed_compensator
   waypoint_visualizer
   DESTINATION lib/${PROJECT_NAME})
 

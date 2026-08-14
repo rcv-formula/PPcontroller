@@ -97,6 +97,33 @@ pure_pursuit:
     speed_reduction_adjust: 0.3  #속도 제한 시 추가로 감속할 양(+이면 더 감속, -이면 완화)
     speed_reduction_prev_scale: 0.2  #이전 감속량 기반 추가 스케일 계수
 
+speed_compensator:
+  ros__parameters:
+    # 컨트롤러 출력(/drive_main)을 받아 VESC 실측 속도 기반 보정 후 재발행.
+    # 이 모듈을 쓰려면 하위 노드(mux 등)가 output_drive_topic을 구독하도록 변경 필요.
+    input_drive_topic: "/drive_main"
+    output_drive_topic: "/drive_filtered"
+    speed_source_type: "vesc"   # "vesc": /sensors/core(erpm), "odom": odom twist
+    vesc_state_topic: "/sensors/core"
+    odom_topic: "/odom"
+    # erpm -> m/s 변환 계수 (f1_stack vesc.yaml과 동일하게 유지할 것)
+    speed_to_erpm_gain: 3172.47
+    speed_to_erpm_offset: 0.0
+
+    # 이 실측 속도(m/s) 이상에서만 보정 동작
+    activation_speed: 4.0
+    # 감속 중(실측 > 목표): 추가감속량 = decel_boost_gain * (실측 - 목표)
+    decel_boost_gain: 0.5
+    # 가속 중(실측 < 목표): 추가가속량 = accel_boost_gain * (목표 - 실측)
+    accel_boost_gain: 0.3
+    # 보정량 상한(m/s)
+    decel_boost_max: 3.0
+    accel_boost_max: 2.0
+    # 이 이하 속도 오차는 무시(잔떨림 방지)
+    speed_error_deadband: 0.1
+    # 속도 데이터가 이보다 오래되면 보정 없이 통과(fail-safe)
+    speed_timeout_sec: 0.5
+
 waypoint_visualizer_node:
   ros__parameters:
     path_topic: "/Path"

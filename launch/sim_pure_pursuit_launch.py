@@ -19,6 +19,13 @@ def generate_launch_description():
         parameters=[config]
     )
 
+    speed_compensator = Node(
+        package='pure_pursuit',
+        executable='speed_compensator',
+        name='speed_compensator',
+        parameters=[config]
+    )
+
     waypoint_visualizer_node = Node(
         package='pure_pursuit',
         executable='waypoint_visualizer',
@@ -28,6 +35,7 @@ def generate_launch_description():
 
     # finalize
     ld.add_action(pure_pursuit)
+    ld.add_action(speed_compensator)
     ld.add_action(waypoint_visualizer_node)
 
     return ld

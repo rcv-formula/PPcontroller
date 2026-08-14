@@ -4,7 +4,7 @@ pure_pursuit:
     path_topic: "/Path"
     car_refFrame: "ego_racecar/base_link"
     global_refFrame: "map"
-    drive_topic: "/drive"
+    drive_topic: "/drive_raw"
     test_mode: False
     drive_test_topic: "/drive_test"
     rviz_current_waypoint_topic: "/current_waypoint"
@@ -52,6 +52,24 @@ pure_pursuit:
     max_allowed_steer_drop_deg: 5.0
     speed_reduction_adjust: 0.0
     speed_reduction_prev_scale: 0.0
+
+speed_compensator:
+  ros__parameters:
+    # 시뮬: pure_pursuit(/drive_raw) -> 보정 -> /drive (f1tenth_gym이 구독)
+    input_drive_topic: "/drive_raw"
+    output_drive_topic: "/drive"
+    speed_source_type: "odom"   # 시뮬에는 vesc가 없으므로 odom twist 사용
+    vesc_state_topic: "/sensors/core"
+    odom_topic: "/ego_racecar/odom"
+    speed_to_erpm_gain: 3172.47
+    speed_to_erpm_offset: 0.0
+    activation_speed: 4.0
+    decel_boost_gain: 0.5
+    accel_boost_gain: 0.3
+    decel_boost_max: 3.0
+    accel_boost_max: 2.0
+    speed_error_deadband: 0.1
+    speed_timeout_sec: 0.5
 
 waypoint_visualizer_node:
   ros__parameters:

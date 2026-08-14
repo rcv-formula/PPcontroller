@@ -19,6 +19,13 @@ def generate_launch_description():
         parameters=[config]
     )
 
+    path_speed_filter = Node(
+        package='pure_pursuit',
+        executable='path_speed_filter',
+        name='path_speed_filter',
+        parameters=[config]
+    )
+
     #waypoint_visualizer_node = Node(
     #    package='pure_pursuit',
     #    executable='waypoint_visualizer',
@@ -37,6 +44,7 @@ def generate_launch_description():
     # finalize
     # ld.add_action(rviz_node)
     ld.add_action(pure_pursuit)
+    ld.add_action(path_speed_filter)
     #ld.add_action(waypoint_visualizer_node)
 
     return ld

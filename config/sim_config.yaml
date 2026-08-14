@@ -1,7 +1,7 @@
 pure_pursuit:
   ros__parameters:
     odom_topic: "/ego_racecar/odom"
-    path_topic: "/Path"
+    path_topic: "/Path_filtered"
     car_refFrame: "ego_racecar/base_link"
     global_refFrame: "map"
     drive_topic: "/drive"
@@ -52,6 +52,17 @@ pure_pursuit:
     max_allowed_steer_drop_deg: 5.0
     speed_reduction_adjust: 0.0
     speed_reduction_prev_scale: 0.0
+
+path_speed_filter:
+  ros__parameters:
+    input_path_topic: "/Path"
+    output_path_topic: "/Path_filtered"
+    path_is_circular: True
+    decel_preview_distance: 1.5
+    decel_drop_gain: 0.5
+    activation_speed: 4.0
+    activation_ramp_range: 1.0
+    max_speed_drop: 3.0
 
 waypoint_visualizer_node:
   ros__parameters:

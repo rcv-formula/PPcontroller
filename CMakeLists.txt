@@ -43,6 +43,12 @@ ament_target_dependencies(pure_pursuit
   rclcpp geometry_msgs ackermann_msgs nav_msgs sensor_msgs std_msgs visualization_msgs tf2 eigen3_cmake_module Eigen3
 )
 
+add_executable(path_speed_filter src/path_speed_filter.cpp)
+
+ament_target_dependencies(path_speed_filter
+  rclcpp nav_msgs
+)
+
 add_executable(waypoint_visualizer src/waypoint_visualizer.cpp)
 
 ament_target_dependencies(waypoint_visualizer
@@ -52,6 +58,7 @@ ament_target_dependencies(waypoint_visualizer
 # Install Cpp executables
 install(TARGETS
   pure_pursuit
+  path_speed_filter
   waypoint_visualizer
   DESTINATION lib/${PROJECT_NAME})
 

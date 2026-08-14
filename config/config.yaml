@@ -1,7 +1,7 @@
 pure_pursuit:
   ros__parameters:
     odom_topic: "/odom"
-    path_topic: "/Path"
+    path_topic: "/Path_filtered"
     car_refFrame: "base_link"
     global_refFrame: "map"
     drive_topic: "/drive_main"
@@ -96,6 +96,23 @@ pure_pursuit:
     max_allowed_steer_drop_deg: 8.0  #최대 조향 감소량(최소 보장되는 스티어링 앵글(deg))
     speed_reduction_adjust: 0.3  #속도 제한 시 추가로 감속할 양(+이면 더 감속, -이면 완화)
     speed_reduction_prev_scale: 0.2  #이전 감속량 기반 추가 스케일 계수
+
+path_speed_filter:
+  ros__parameters:
+    # path 속도 프로파일 오픈루프 후처리: 전방 감가속도를 계산해
+    # 감속 구간의 타겟 속도를 감속량에 비례해 미리 떨어뜨림
+    input_path_topic: "/Path"
+    output_path_topic: "/Path_filtered"
+    path_is_circular: True   # pure_pursuit의 path_is_circular와 동일하게 유지
+    # 감가속도를 계산할 전방 거리(m). 클수록 더 미리, 더 완만하게 감속
+    decel_preview_distance: 1.5
+    # 감속도 1m/s^2당 떨어뜨리는 속도(m/s)
+    decel_drop_gain: 0.5
+    # 이 프로파일 속도(m/s) 이상에서만 동작 (ramp 구간에 걸쳐 0->1 연속 블렌딩)
+    activation_speed: 4.0
+    activation_ramp_range: 1.0
+    # 한 waypoint에서 떨어뜨리는 속도 상한(m/s)
+    max_speed_drop: 3.0
 
 waypoint_visualizer_node:
   ros__parameters:

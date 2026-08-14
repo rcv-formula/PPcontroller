@@ -112,6 +112,8 @@ speed_compensator:
 
     # 이 실측 속도(m/s) 이상에서만 보정 동작
     activation_speed: 4.0
+    # 경계 점프 방지: activation_speed ~ +ramp_range 구간에서 보정 비율 0->1 선형 증가
+    activation_ramp_range: 1.0
     # 감속 중(실측 > 목표): 추가감속량 = decel_boost_gain * (실측 - 목표)
     decel_boost_gain: 0.5
     # 가속 중(실측 < 목표): 추가가속량 = accel_boost_gain * (목표 - 실측)

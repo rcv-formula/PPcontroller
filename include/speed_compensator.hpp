@@ -30,6 +30,7 @@ private:
   double speed_to_erpm_gain_ = 3172.47;
   double speed_to_erpm_offset_ = 0.0;
   double activation_speed_ = 4.0;    // 이 실측 속도(m/s) 이상에서만 보정 동작
+  double activation_ramp_range_ = 1.0; // 보정 비율을 0->1로 올리는 속도 구간(m/s)
   double decel_boost_gain_ = 0.0;    // 감속 보정 비례 게인 (오차 1m/s당 추가 감속량)
   double accel_boost_gain_ = 0.0;    // 가속 보정 비례 게인 (오차 1m/s당 추가 가속량)
   double decel_boost_max_ = 3.0;     // 최대 추가 감속량(m/s)

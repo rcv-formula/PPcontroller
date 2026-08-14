@@ -64,6 +64,7 @@ speed_compensator:
     speed_to_erpm_gain: 3172.47
     speed_to_erpm_offset: 0.0
     activation_speed: 4.0
+    activation_ramp_range: 1.0
     decel_boost_gain: 0.5
     accel_boost_gain: 0.3
     decel_boost_max: 3.0

@@ -16,6 +16,7 @@ constexpr const char *kRuntimeParameterNames[] = {
     "speed_to_erpm_gain",
     "speed_to_erpm_offset",
     "activation_speed",
+    "activation_ramp_range",
     "decel_boost_gain",
     "accel_boost_gain",
     "decel_boost_max",
@@ -35,6 +36,7 @@ SpeedCompensator::SpeedCompensator() : Node("speed_compensator") {
   this->declare_parameter("speed_to_erpm_gain", 3172.47);
   this->declare_parameter("speed_to_erpm_offset", 0.0);
   this->declare_parameter("activation_speed", 4.0);
+  this->declare_parameter("activation_ramp_range", 1.0);
   this->declare_parameter("decel_boost_gain", 0.0);
   this->declare_parameter("accel_boost_gain", 0.0);
   this->declare_parameter("decel_boost_max", 3.0);
@@ -117,6 +119,8 @@ bool SpeedCompensator::apply_runtime_parameter(
     speed_to_erpm_offset_ = parameter.as_double();
   } else if (name == "activation_speed") {
     activation_speed_ = std::max(0.0, parameter.as_double());
+  } else if (name == "activation_ramp_range") {
+    activation_ramp_range_ = std::max(0.0, parameter.as_double());
   } else if (name == "decel_boost_gain") {
     decel_boost_gain_ = std::max(0.0, parameter.as_double());
   } else if (name == "accel_boost_gain") {
@@ -149,26 +153,39 @@ double SpeedCompensator::compensate_speed(double target_speed) const {
     return target_speed;
   }
 
-  // activation_speed 미만에서는 동작하지 않음
-  if (std::abs(current_speed_) < activation_speed_) {
+  // activation_speed 미만에서는 동작하지 않음.
+  // 경계에서 출력이 점프하지 않도록 activation_speed부터
+  // activation_ramp_range 구간에 걸쳐 보정 비율을 0->1로 올림
+  const double speed_over_activation =
+      std::abs(current_speed_) - activation_speed_;
+  if (speed_over_activation <= 0.0) {
     return target_speed;
   }
+  const double activation_ratio =
+      activation_ramp_range_ > 1e-6
+          ? std::min(speed_over_activation / activation_ramp_range_, 1.0)
+          : 1.0;
 
+  // 데드밴드 경계에서도 연속이 되도록 유효 오차 = |오차| - 데드밴드 사용
   const double speed_error = current_speed_ - target_speed;
-  if (std::abs(speed_error) < speed_error_deadband_) {
+  const double effective_error =
+      std::abs(speed_error) - speed_error_deadband_;
+  if (effective_error <= 0.0) {
     return target_speed;
   }
 
   if (speed_error > 0.0) {
     // 감속 중: 오차에 비례해 더 감속
-    const double boost =
-        std::min(decel_boost_gain_ * speed_error, decel_boost_max_);
+    const double boost = std::min(
+        decel_boost_gain_ * effective_error * activation_ratio,
+        decel_boost_max_);
     return std::max(0.0, target_speed - boost);
   }
 
   // 가속 중: 오차에 비례해 더 가속
-  const double boost =
-      std::min(accel_boost_gain_ * (-speed_error), accel_boost_max_);
+  const double boost = std::min(
+      accel_boost_gain_ * effective_error * activation_ratio,
+      accel_boost_max_);
   return target_speed + boost;
 }
 

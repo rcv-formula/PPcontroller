@@ -45,26 +45,33 @@ void WaypointVisualizer::visualize_points() {
         return;
     }
 
+    // 전체 경로를 SPHERE_LIST 마커 하나로 발행합니다.
+    // (waypoint마다 개별 마커를 만들면 무겁고, 경로가 짧아질 때 잔상이 남습니다)
     auto marker_array = visualization_msgs::msg::MarkerArray();
     auto marker = visualization_msgs::msg::Marker();
     marker.header.frame_id = path_frame_id.empty() ? "map" : path_frame_id;
     marker.header.stamp = this->now();
-    marker.type = visualization_msgs::msg::Marker::SPHERE;
+    marker.ns = "waypoints";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::SPHERE_LIST;
     marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose.orientation.w = 1.0;
     marker.scale.x = 0.15;
     marker.scale.y = 0.15;
     marker.scale.z = 0.15;
     marker.color.a = 1.0;
     marker.color.g = 1.0;
 
+    marker.points.reserve(waypoints.X.size());
     for (unsigned int i = 0; i < waypoints.X.size(); ++i) {
-        marker.pose.position.x = waypoints.X[i];
-        marker.pose.position.y = waypoints.Y[i];
-        marker.pose.position.z = 0.0;
-        marker.id = i;
-        marker_array.markers.push_back(marker);
+        geometry_msgs::msg::Point point;
+        point.x = waypoints.X[i];
+        point.y = waypoints.Y[i];
+        point.z = 0.0;
+        marker.points.push_back(point);
     }
 
+    marker_array.markers.push_back(marker);
     vis_path_pub->publish(marker_array);
 }
 

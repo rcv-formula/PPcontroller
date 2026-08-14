@@ -30,12 +30,57 @@ inline double planar_distance_sq(double x1, double y1, double x2, double y2) {
   const double dy = y2 - y1;
   return dx * dx + dy * dy;
 }
+
+// 런타임(ros2 param set)에 변경 가능한 파라미터 목록.
+// apply_runtime_parameter()의 분기와 1:1로 대응합니다.
+constexpr const char *kRuntimeParameterNames[] = {
+    "drive_topic",
+    "test_mode",
+    "drive_test_topic",
+    "rviz_runtime_params_x",
+    "rviz_runtime_params_y",
+    "rviz_runtime_params_z",
+    "rf_speed_scale_channel",
+    "rf_max_limit_channel",
+    "rf_enable_channel",
+    "rf_enable_threshold",
+    "rf_value_min",
+    "rf_value_max",
+    "K_p",
+    "K_d",
+    "K_i",
+    "heading_error_gain",
+    "velocity_percentage",
+    "max_speed_limit_percentage",
+    "min_lookahead",
+    "max_lookahead",
+    "lookahead_ratio",
+    "speed_profile_distance_offset",
+    "steering_limit",
+    "steering_expo_gain",
+    "steering_expo_curve",
+    "steer_reduction_speed_threshold",
+    "steer_reduction_constant_coef",
+    "steer_reduction_linear_coef",
+    "steer_reduction_min_scale",
+    "speed_reduction_steer_angle_deg",
+    "max_allowed_steer_drop_deg",
+    "speed_reduction_adjust",
+    "speed_reduction_prev_scale",
+    "drive_output_rate_hz",
+    "publish_drive_on_odom",
+    "visualization_rate_hz",
+    "steer_latest_blend",
+    "steer_large_change_blend",
+    "steer_blend_change_threshold_deg",
+    "steer_speed_filter_start_speed",
+    "steer_speed_filter_end_speed",
+    "steer_speed_filter_final_blend",
+    "speed_latest_blend",
+};
 } // namespace
 
 PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
-  // 초기 lookahead index 값. 실제 사용은 waypoints.index 로 관리됩니다.
-  lookahead_index = 0;
-
   // 파라미터 선언
   this->declare_parameter("odom_topic", "/ego_racecar/odom");
   this->declare_parameter("car_refFrame", "ego_racecar/base_link");
@@ -98,12 +143,9 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("obs_slow_th", 3.0);
   this->declare_parameter("obs_slow_percentage", 0.6);
 
-  // 파라미터 읽어오기
+  // 초기화 전용 파라미터 읽어오기 (런타임 변경 불가)
   odom_topic = this->get_parameter("odom_topic").as_string();
   car_refFrame = this->get_parameter("car_refFrame").as_string();
-  drive_topic = this->get_parameter("drive_topic").as_string();
-  test_mode = this->get_parameter("test_mode").as_bool();
-  drive_test_topic = this->get_parameter("drive_test_topic").as_string();
   path_topic = this->get_parameter("path_topic").as_string();
   rviz_current_waypoint_topic =
       this->get_parameter("rviz_current_waypoint_topic").as_string();
@@ -113,90 +155,21 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
       this->get_parameter("rviz_speed_offset_waypoint_topic").as_string();
   rviz_runtime_params_topic =
       this->get_parameter("rviz_runtime_params_topic").as_string();
-  rviz_runtime_params_x =
-      this->get_parameter("rviz_runtime_params_x").as_double();
-  rviz_runtime_params_y =
-      this->get_parameter("rviz_runtime_params_y").as_double();
-  rviz_runtime_params_z =
-      this->get_parameter("rviz_runtime_params_z").as_double();
   rf_topic = this->get_parameter("rf_topic").as_string();
-  rf_speed_scale_channel =
-      this->get_parameter("rf_speed_scale_channel").as_int();
-  rf_max_limit_channel =
-      this->get_parameter("rf_max_limit_channel").as_int();
-  rf_enable_channel = this->get_parameter("rf_enable_channel").as_int();
-  rf_enable_threshold = this->get_parameter("rf_enable_threshold").as_int();
-  rf_value_min = this->get_parameter("rf_value_min").as_int();
-  rf_value_max = this->get_parameter("rf_value_max").as_int();
   global_refFrame = this->get_parameter("global_refFrame").as_string();
   path_is_circular = this->get_parameter("path_is_circular").as_bool();
-  min_lookahead = this->get_parameter("min_lookahead").as_double();
-  max_lookahead = this->get_parameter("max_lookahead").as_double();
-  lookahead_ratio = this->get_parameter("lookahead_ratio").as_double();
-  speed_profile_distance_offset =
-      this->get_parameter("speed_profile_distance_offset").as_double();
   min_searching_idx_offset =
       this->get_parameter("min_searching_idx_offset").as_int();
   max_searching_idx_offset =
       this->get_parameter("max_searching_idx_offset").as_int();
-  K_p = this->get_parameter("K_p").as_double();
-  K_d = this->get_parameter("K_d").as_double();
-  K_i = this->get_parameter("K_i").as_double(); // I제어기 파라미터 읽기
-  steering_limit = this->get_parameter("steering_limit").as_double();
-  velocity_percentage =
-      std::clamp(this->get_parameter("velocity_percentage").as_double(), 0.0,
-                 1.0);
-  max_speed_limit_percentage =
-      std::clamp(this->get_parameter("max_speed_limit_percentage").as_double(),
-                 0.0, 1.0);
-  heading_error_gain =
-      this->get_parameter("heading_error_gain").as_double();
-  steer_reduction_speed_threshold =
-      this->get_parameter("steer_reduction_speed_threshold").as_double();
-  steer_reduction_constant_coef =
-      this->get_parameter("steer_reduction_constant_coef").as_double();
-  steer_reduction_linear_coef =
-      this->get_parameter("steer_reduction_linear_coef").as_double();
-  steer_reduction_min_scale =
-      this->get_parameter("steer_reduction_min_scale").as_double();
-  speed_reduction_angle_threshold = to_radians(
-      this->get_parameter("speed_reduction_steer_angle_deg").as_double());
-  max_allowed_steer_drop = to_radians(
-      this->get_parameter("max_allowed_steer_drop_deg").as_double());
-  speed_reduction_adjust =
-      this->get_parameter("speed_reduction_adjust").as_double();
-  speed_reduction_prev_scale =
-      this->get_parameter("speed_reduction_prev_scale").as_double();
-  steering_expo_gain =
-      this->get_parameter("steering_expo_gain").as_double();
-  steering_expo_curve =
-      this->get_parameter("steering_expo_curve").as_double();
-  drive_output_rate_hz =
-      this->get_parameter("drive_output_rate_hz").as_double();
-  publish_drive_on_odom =
-      this->get_parameter("publish_drive_on_odom").as_bool();
-  visualization_rate_hz =
-      this->get_parameter("visualization_rate_hz").as_double();
-  steer_latest_blend =
-      this->get_parameter("steer_latest_blend").as_double();
-  steer_large_change_blend =
-      this->get_parameter("steer_large_change_blend").as_double();
-  steer_blend_change_threshold_deg =
-      this->get_parameter("steer_blend_change_threshold_deg").as_double();
-  steer_speed_filter_start_speed =
-      this->get_parameter("steer_speed_filter_start_speed").as_double();
-  steer_speed_filter_end_speed =
-      this->get_parameter("steer_speed_filter_end_speed").as_double();
-  steer_speed_filter_final_blend =
-      this->get_parameter("steer_speed_filter_final_blend").as_double();
-  speed_latest_blend =
-      this->get_parameter("speed_latest_blend").as_double();
-  slow_with_obs = 
-      this->get_parameter("slow_with_obs").as_bool();
-  slow_th_dist = 
-      this->get_parameter("obs_slow_th").as_double();
-  slow_amount = 
-      this->get_parameter("obs_slow_percentage").as_double();
+  slow_with_obs = this->get_parameter("slow_with_obs").as_bool();
+  slow_th_dist = this->get_parameter("obs_slow_th").as_double();
+  slow_amount = this->get_parameter("obs_slow_percentage").as_double();
+
+  // 런타임 변경 가능 파라미터는 apply_runtime_parameter()로 일괄 반영
+  for (const char *name : kRuntimeParameterNames) {
+    apply_runtime_parameter(this->get_parameter(name));
+  }
 
   // 초기 적분 오차 초기화
   integral_error = 0.0;
@@ -230,9 +203,6 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   obs_status = this->create_subscription<geometry_msgs::msg::PointStamped>(
       "/obj_flag", 10, std::bind(&PurePursuit::obs_status_callback, this, _1));
 
-  timer_ = this->create_wall_timer(
-      2000ms, std::bind(&PurePursuit::timer_callback, this));
-
   rclcpp::QoS pathQos(rclcpp::KeepLast(10));
   pathQos.reliability(rclcpp::ReliabilityPolicy::Reliable);
   //pathQos.durability(rclcpp::DurabilityPolicy::TransientLocal);
@@ -264,6 +234,7 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
         rcl_interfaces::msg::SetParametersResult result;
         result.successful = true;
 
+        // 검증: 속도 비율 파라미터는 [0.0, 1.0] 범위의 숫자만 허용
         for (const auto &parameter : parameters) {
           const std::string &name = parameter.get_name();
           if (name != "velocity_percentage" &&
@@ -290,19 +261,23 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
           }
         }
 
+        // 반영: 런타임 변경 가능한 파라미터를 멤버 변수에 적용
+        bool drive_output_config_changed = false;
         for (const auto &parameter : parameters) {
-          const std::string &name = parameter.get_name();
-          if (name == "velocity_percentage") {
-            velocity_percentage =
-                parameter.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER
-                    ? static_cast<double>(parameter.as_int())
-                    : parameter.as_double();
-          } else if (name == "max_speed_limit_percentage") {
-            max_speed_limit_percentage =
-                parameter.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER
-                    ? static_cast<double>(parameter.as_int())
-                    : parameter.as_double();
+          if (!apply_runtime_parameter(parameter)) {
+            continue;
           }
+
+          const std::string &name = parameter.get_name();
+          if (name == "drive_topic" || name == "test_mode" ||
+              name == "drive_test_topic" || name == "drive_output_rate_hz") {
+            drive_output_config_changed = true;
+          }
+        }
+
+        if (drive_output_config_changed) {
+          configure_drive_publisher();
+          configure_drive_output_timer();
         }
 
         return result;
@@ -846,79 +821,6 @@ void PurePursuit::get_waypoint_new() {
                                 speed_profile_distance_offset);
 }
 
-void PurePursuit::get_waypoint() {
-  int final_i = -1;
-  int start = waypoints.index;
-  int end = (waypoints.index + 50) % num_waypoints;
-
-  double lookahead = std::min(
-      std::max(min_lookahead, max_lookahead * curr_velocity / lookahead_ratio),
-      max_lookahead);
-  const double lookahead_sq = lookahead * lookahead;
-  double longest_distance_sq = 0.0;
-
-  if (end < start) {
-    for (int i = start; i < num_waypoints; i++) {
-      double dist_sq =
-          planar_distance_sq(waypoints.X[i], waypoints.Y[i], x_car_world,
-                             y_car_world);
-      if (dist_sq <= lookahead_sq && dist_sq >= longest_distance_sq) {
-        longest_distance_sq = dist_sq;
-        final_i = i;
-      }
-    }
-    for (int i = 0; i < end; i++) {
-      double dist_sq =
-          planar_distance_sq(waypoints.X[i], waypoints.Y[i], x_car_world,
-                             y_car_world);
-      if (dist_sq <= lookahead_sq && dist_sq >= longest_distance_sq) {
-        longest_distance_sq = dist_sq;
-        final_i = i;
-      }
-    }
-  } else {
-    for (int i = start; i < end; i++) {
-      double dist_sq =
-          planar_distance_sq(waypoints.X[i], waypoints.Y[i], x_car_world,
-                             y_car_world);
-      if (dist_sq <= lookahead_sq && dist_sq >= longest_distance_sq) {
-        longest_distance_sq = dist_sq;
-        final_i = i;
-      }
-    }
-  }
-
-  if (final_i == -1) {
-    final_i = 0;
-    for (int i = 0; i < num_waypoints; i++) {
-      double dist_sq =
-          planar_distance_sq(waypoints.X[i], waypoints.Y[i], x_car_world,
-                             y_car_world);
-      if (dist_sq <= lookahead_sq && dist_sq >= longest_distance_sq) {
-        longest_distance_sq = dist_sq;
-        final_i = i;
-      }
-    }
-  }
-
-  double shortest_distance_sq =
-      planar_distance_sq(waypoints.X[0], waypoints.Y[0], x_car_world,
-                         y_car_world);
-  int velocity_i = 0;
-  for (int i = 0; i < num_waypoints; i++) {
-    double dist_sq =
-        planar_distance_sq(waypoints.X[i], waypoints.Y[i], x_car_world,
-                           y_car_world);
-    if (dist_sq <= shortest_distance_sq) {
-      shortest_distance_sq = dist_sq;
-      velocity_i = i;
-    }
-  }
-
-  waypoints.index = final_i;
-  waypoints.velocity_index = velocity_i;
-}
-
 double PurePursuit::apply_steering_expo(double steering_angle,
                                         double steering_limit_rad) {
   if (steering_limit_rad <= 1e-6) {
@@ -1334,84 +1236,111 @@ void PurePursuit::rf_callback(
                           rf_raw_to_unit(max_limit_raw));
 }
 
-void PurePursuit::timer_callback() {
-  // 주기적으로 파라미터 업데이트
-  drive_topic = this->get_parameter("drive_topic").as_string();
-  test_mode = this->get_parameter("test_mode").as_bool();
-  drive_test_topic = this->get_parameter("drive_test_topic").as_string();
-  rviz_runtime_params_x =
-      this->get_parameter("rviz_runtime_params_x").as_double();
-  rviz_runtime_params_y =
-      this->get_parameter("rviz_runtime_params_y").as_double();
-  rviz_runtime_params_z =
-      this->get_parameter("rviz_runtime_params_z").as_double();
-  rf_speed_scale_channel =
-      this->get_parameter("rf_speed_scale_channel").as_int();
-  rf_max_limit_channel =
-      this->get_parameter("rf_max_limit_channel").as_int();
-  rf_enable_channel = this->get_parameter("rf_enable_channel").as_int();
-  rf_enable_threshold = this->get_parameter("rf_enable_threshold").as_int();
-  rf_value_min = this->get_parameter("rf_value_min").as_int();
-  rf_value_max = this->get_parameter("rf_value_max").as_int();
-  K_p = this->get_parameter("K_p").as_double();
-  K_d = this->get_parameter("K_d").as_double();
-  K_i = this->get_parameter("K_i").as_double(); // I제어기 파라미터 업데이트
-  heading_error_gain =
-      this->get_parameter("heading_error_gain").as_double();
-  velocity_percentage =
-      std::clamp(this->get_parameter("velocity_percentage").as_double(), 0.0,
-                 1.0);
-  max_speed_limit_percentage =
-      std::clamp(this->get_parameter("max_speed_limit_percentage").as_double(),
-                 0.0, 1.0);
-  min_lookahead = this->get_parameter("min_lookahead").as_double();
-  max_lookahead = this->get_parameter("max_lookahead").as_double();
-  lookahead_ratio = this->get_parameter("lookahead_ratio").as_double();
-  speed_profile_distance_offset =
-      this->get_parameter("speed_profile_distance_offset").as_double();
-  steering_limit = this->get_parameter("steering_limit").as_double();
-  steering_expo_gain =
-      this->get_parameter("steering_expo_gain").as_double();
-  steering_expo_curve =
-      this->get_parameter("steering_expo_curve").as_double();
-  steer_reduction_speed_threshold =
-      this->get_parameter("steer_reduction_speed_threshold").as_double();
-  steer_reduction_constant_coef =
-      this->get_parameter("steer_reduction_constant_coef").as_double();
-  steer_reduction_linear_coef =
-      this->get_parameter("steer_reduction_linear_coef").as_double();
-  steer_reduction_min_scale =
-      this->get_parameter("steer_reduction_min_scale").as_double();
-  speed_reduction_angle_threshold = to_radians(
-      this->get_parameter("speed_reduction_steer_angle_deg").as_double());
-  max_allowed_steer_drop = to_radians(
-      this->get_parameter("max_allowed_steer_drop_deg").as_double());
-  speed_reduction_adjust =
-      this->get_parameter("speed_reduction_adjust").as_double();
-  speed_reduction_prev_scale =
-      this->get_parameter("speed_reduction_prev_scale").as_double();
-  drive_output_rate_hz =
-      this->get_parameter("drive_output_rate_hz").as_double();
-  publish_drive_on_odom =
-      this->get_parameter("publish_drive_on_odom").as_bool();
-  visualization_rate_hz =
-      this->get_parameter("visualization_rate_hz").as_double();
-  steer_latest_blend =
-      this->get_parameter("steer_latest_blend").as_double();
-  steer_large_change_blend =
-      this->get_parameter("steer_large_change_blend").as_double();
-  steer_blend_change_threshold_deg =
-      this->get_parameter("steer_blend_change_threshold_deg").as_double();
-  steer_speed_filter_start_speed =
-      this->get_parameter("steer_speed_filter_start_speed").as_double();
-  steer_speed_filter_end_speed =
-      this->get_parameter("steer_speed_filter_end_speed").as_double();
-  steer_speed_filter_final_blend =
-      this->get_parameter("steer_speed_filter_final_blend").as_double();
-  speed_latest_blend =
-      this->get_parameter("speed_latest_blend").as_double();
-  configure_drive_publisher();
-  configure_drive_output_timer();
+// 런타임에 변경 가능한 파라미터 하나를 대응하는 멤버 변수에 반영합니다.
+// 처리한 파라미터면 true, 목록에 없는 이름이면 false를 반환합니다.
+bool PurePursuit::apply_runtime_parameter(const rclcpp::Parameter &parameter) {
+  const std::string &name = parameter.get_name();
+
+  // 속도 비율 파라미터는 int로도 들어올 수 있어 별도 처리
+  auto as_clamped_ratio = [&parameter]() {
+    const double value =
+        parameter.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER
+            ? static_cast<double>(parameter.as_int())
+            : parameter.as_double();
+    return std::clamp(value, 0.0, 1.0);
+  };
+
+  if (name == "drive_topic") {
+    drive_topic = parameter.as_string();
+  } else if (name == "test_mode") {
+    test_mode = parameter.as_bool();
+  } else if (name == "drive_test_topic") {
+    drive_test_topic = parameter.as_string();
+  } else if (name == "rviz_runtime_params_x") {
+    rviz_runtime_params_x = parameter.as_double();
+  } else if (name == "rviz_runtime_params_y") {
+    rviz_runtime_params_y = parameter.as_double();
+  } else if (name == "rviz_runtime_params_z") {
+    rviz_runtime_params_z = parameter.as_double();
+  } else if (name == "rf_speed_scale_channel") {
+    rf_speed_scale_channel = parameter.as_int();
+  } else if (name == "rf_max_limit_channel") {
+    rf_max_limit_channel = parameter.as_int();
+  } else if (name == "rf_enable_channel") {
+    rf_enable_channel = parameter.as_int();
+  } else if (name == "rf_enable_threshold") {
+    rf_enable_threshold = parameter.as_int();
+  } else if (name == "rf_value_min") {
+    rf_value_min = parameter.as_int();
+  } else if (name == "rf_value_max") {
+    rf_value_max = parameter.as_int();
+  } else if (name == "K_p") {
+    K_p = parameter.as_double();
+  } else if (name == "K_d") {
+    K_d = parameter.as_double();
+  } else if (name == "K_i") {
+    K_i = parameter.as_double();
+  } else if (name == "heading_error_gain") {
+    heading_error_gain = parameter.as_double();
+  } else if (name == "velocity_percentage") {
+    velocity_percentage = as_clamped_ratio();
+  } else if (name == "max_speed_limit_percentage") {
+    max_speed_limit_percentage = as_clamped_ratio();
+  } else if (name == "min_lookahead") {
+    min_lookahead = parameter.as_double();
+  } else if (name == "max_lookahead") {
+    max_lookahead = parameter.as_double();
+  } else if (name == "lookahead_ratio") {
+    lookahead_ratio = parameter.as_double();
+  } else if (name == "speed_profile_distance_offset") {
+    speed_profile_distance_offset = parameter.as_double();
+  } else if (name == "steering_limit") {
+    steering_limit = parameter.as_double();
+  } else if (name == "steering_expo_gain") {
+    steering_expo_gain = parameter.as_double();
+  } else if (name == "steering_expo_curve") {
+    steering_expo_curve = parameter.as_double();
+  } else if (name == "steer_reduction_speed_threshold") {
+    steer_reduction_speed_threshold = parameter.as_double();
+  } else if (name == "steer_reduction_constant_coef") {
+    steer_reduction_constant_coef = parameter.as_double();
+  } else if (name == "steer_reduction_linear_coef") {
+    steer_reduction_linear_coef = parameter.as_double();
+  } else if (name == "steer_reduction_min_scale") {
+    steer_reduction_min_scale = parameter.as_double();
+  } else if (name == "speed_reduction_steer_angle_deg") {
+    speed_reduction_angle_threshold = to_radians(parameter.as_double());
+  } else if (name == "max_allowed_steer_drop_deg") {
+    max_allowed_steer_drop = to_radians(parameter.as_double());
+  } else if (name == "speed_reduction_adjust") {
+    speed_reduction_adjust = parameter.as_double();
+  } else if (name == "speed_reduction_prev_scale") {
+    speed_reduction_prev_scale = parameter.as_double();
+  } else if (name == "drive_output_rate_hz") {
+    drive_output_rate_hz = parameter.as_double();
+  } else if (name == "publish_drive_on_odom") {
+    publish_drive_on_odom = parameter.as_bool();
+  } else if (name == "visualization_rate_hz") {
+    visualization_rate_hz = parameter.as_double();
+  } else if (name == "steer_latest_blend") {
+    steer_latest_blend = parameter.as_double();
+  } else if (name == "steer_large_change_blend") {
+    steer_large_change_blend = parameter.as_double();
+  } else if (name == "steer_blend_change_threshold_deg") {
+    steer_blend_change_threshold_deg = parameter.as_double();
+  } else if (name == "steer_speed_filter_start_speed") {
+    steer_speed_filter_start_speed = parameter.as_double();
+  } else if (name == "steer_speed_filter_end_speed") {
+    steer_speed_filter_end_speed = parameter.as_double();
+  } else if (name == "steer_speed_filter_final_blend") {
+    steer_speed_filter_final_blend = parameter.as_double();
+  } else if (name == "speed_latest_blend") {
+    speed_latest_blend = parameter.as_double();
+  } else {
+    return false;
+  }
+
+  return true;
 }
 
 double PurePursuit::normalize_angle(double angle) {

@@ -49,11 +49,6 @@ private:
   // Waypoints 구조체 인스턴스
   Waypoints waypoints;
 
-  // steering waypoint(lookahead)와 속도 포인트 인덱스는 Waypoints 내부에서
-  // 관리합니다. 기존 멤버는 남겨두되 사용하지 않습니다.
-  int lookahead_index;
-  int velocity_index;
-
   // lookahead 및 현재 포인트의 좌표 (world, car 프레임)
   Eigen::Vector3d lookahead_point_world; // 월드 좌표계 (보통 "map")
   Eigen::Vector3d lookahead_point_car;   // 차량 좌표계
@@ -141,14 +136,10 @@ private:
   double visualization_rate_hz = 20.0;
   bool publish_drive_on_odom = true;
 
-  bool emergency_breaking = false;
-  std::string lane_number = "left"; // "left" 또는 "right"
-
   // Waypoint 개수 (path 길이). Waypoints 구조체의 벡터 크기와 동일합니다.
   int num_waypoints;
 
   // Timer
-  rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::TimerBase::SharedPtr drive_output_timer_;
   rclcpp::TimerBase::SharedPtr runtime_param_visualization_timer_;
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
@@ -214,8 +205,6 @@ private:
   void visualize_runtime_params();
   bool should_publish_visualization();
 
-  void get_waypoint();
-
   void transformandinterp_waypoint();
 
   double p_controller();
@@ -231,7 +220,8 @@ private:
   void obs_status_callback(const geometry_msgs::msg::PointStamped msg);
   void rf_callback(const std_msgs::msg::UInt16MultiArray::ConstSharedPtr rf_msg);
 
-  void timer_callback();
+  // 런타임 변경 가능 파라미터 1개를 대응 멤버 변수에 반영합니다.
+  bool apply_runtime_parameter(const rclcpp::Parameter &parameter);
 
   // nav_msgs::Path 토픽 수신을 처리하는 콜백. 수신된 경로를 내부 Waypoints
   // 구조체에 저장합니다. position.z는 속도(v)로 활용됩니다.

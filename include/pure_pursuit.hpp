@@ -104,9 +104,9 @@ private:
   int rf_speed_scale_channel = 6;
   int rf_max_limit_channel = 7;
   int rf_enable_channel = 8;
-  int rf_enable_threshold = 750;
-  int rf_value_min = 0;
-  int rf_value_max = 1500;
+  int rf_enable_threshold = 1500;
+  int rf_value_min = 1000;
+  int rf_value_max = 2000;
   bool rf_runtime_control_active = false;
   double drive_output_rate_hz = 50.0;
   double active_drive_output_rate_hz = 0.0;

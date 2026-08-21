@@ -101,9 +101,9 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("rf_speed_scale_channel", 6);
   this->declare_parameter("rf_max_limit_channel", 7);
   this->declare_parameter("rf_enable_channel", 8);
-  this->declare_parameter("rf_enable_threshold", 750);
-  this->declare_parameter("rf_value_min", 0);
-  this->declare_parameter("rf_value_max", 1500);
+  this->declare_parameter("rf_enable_threshold", 1500);
+  this->declare_parameter("rf_value_min", 1000);
+  this->declare_parameter("rf_value_max", 2000);
   this->declare_parameter("global_refFrame", "map");
   this->declare_parameter("path_is_circular", true);
   this->declare_parameter("min_lookahead", 0.5);
@@ -287,6 +287,28 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
       200ms, std::bind(&PurePursuit::visualize_runtime_params, this));
 
   RCLCPP_INFO(this->get_logger(), "Pure pursuit node has been launched");
+
+  // RF 실시간 조절 설정 요약 및 임계값 검증
+  {
+    const int rf_raw_min = std::min(rf_value_min, rf_value_max);
+    const int rf_raw_max = std::max(rf_value_min, rf_value_max);
+    RCLCPP_INFO(this->get_logger(),
+                "RF runtime control: speed ch[%d], max limit ch[%d], "
+                "enable ch[%d] >= %d, raw range [%d, %d]",
+                rf_speed_scale_channel, rf_max_limit_channel, rf_enable_channel,
+                rf_enable_threshold, rf_raw_min, rf_raw_max);
+    if (rf_enable_threshold <= rf_raw_min) {
+      RCLCPP_WARN(this->get_logger(),
+                  "rf_enable_threshold(%d) <= raw min(%d): RF runtime control "
+                  "stays always enabled",
+                  rf_enable_threshold, rf_raw_min);
+    } else if (rf_enable_threshold > rf_raw_max) {
+      RCLCPP_WARN(this->get_logger(),
+                  "rf_enable_threshold(%d) > raw max(%d): RF runtime control "
+                  "never gets enabled",
+                  rf_enable_threshold, rf_raw_max);
+    }
+  }
 
   // PD 제어를 위한 초기값 설정
   prev_error = 0.0;
@@ -1202,11 +1224,11 @@ void PurePursuit::rf_callback(
     return;
   }
 
-  const bool should_apply_rf = enable_raw > rf_enable_threshold;
+  const bool should_apply_rf = enable_raw >= rf_enable_threshold;
   if (!should_apply_rf) {
     if (rf_runtime_control_active) {
       RCLCPP_INFO(this->get_logger(),
-                  "RF runtime control disabled by channel index %d: %d <= %d",
+                  "RF runtime control disabled by channel index %d: %d < %d",
                   rf_enable_channel, enable_raw, rf_enable_threshold);
     }
     rf_runtime_control_active = false;
@@ -1227,7 +1249,7 @@ void PurePursuit::rf_callback(
 
   if (!rf_runtime_control_active) {
     RCLCPP_INFO(this->get_logger(),
-                "RF runtime control enabled by channel index %d: %d > %d",
+                "RF runtime control enabled by channel index %d: %d >= %d",
                 rf_enable_channel, enable_raw, rf_enable_threshold);
   }
   rf_runtime_control_active = true;

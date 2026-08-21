@@ -20,8 +20,12 @@ pure_pursuit:
     rf_topic: "/rf"
     rf_speed_scale_channel: 6
     rf_max_limit_channel: 7
+    # 최대속 제한 채널(7) 바로 다음 채널이 enable 스위치입니다.
     rf_enable_channel: 8
-    rf_enable_threshold: 750
+    # enable 채널 raw 값이 이 값 이상일 때만 위 두 채널 값을 반영합니다.
+    # 스위치 raw는 rf_value_min(1000) ~ rf_value_max(2000)이므로 중간값 1500 기준.
+    # 이 값이 1000 이하면 스위치를 내려도 항상 반영되니 주의.
+    rf_enable_threshold: 1500
     rf_value_min: 1000
     rf_value_max: 2000
 

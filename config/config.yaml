@@ -29,6 +29,28 @@ pure_pursuit:
     rf_value_min: 1000
     rf_value_max: 2000
 
+    # VESC sensors/core 기반 실제 휠 속도
+    # speed(m/s) = (state.speed[erpm] - speed_to_erpm_offset) / speed_to_erpm_gain
+    vesc_state_topic: "sensors/core"
+    speed_to_erpm_gain: 3172.47
+    speed_to_erpm_offset: 0.0
+    wheel_speed_deadband: 0.05  # 이하이면 0으로 간주 (vesc_to_odom과 동일)
+    # 측정 휠 속도를 명령 속도(path speed) 도메인으로 맞추는 배율.
+    # 실측이 약 2.6배 느리게 나와서 곱해줍니다. 아래 diff 값들은 모두
+    # 이 변환 후의 명령 속도 기준입니다 (실제 속도로는 1/2.6 수준).
+    wheel_speed_scale: 2.6
+    wheel_speed_timeout: 0.5  # 이보다 오래된 값이면 런치 스타트를 걸지 않음
+
+    # 런치 스타트: 트리거가 오면 목표 속도까지 설정 가속도로만 올라가는 래치
+    launch_start_enabled: True
+    # /rf.data[] 인덱스 (앞에서 6번째 채널 = 0-based 5)
+    launch_start_channel: 5
+    launch_start_channel_threshold: 1800  # 이하 -> 초과로 올라갈 때만 발동
+    launch_start_engage_diff: 1.0   # 목표와 휠 속도 차이가 이 이상일 때만 래치
+    launch_start_release_diff: 0.5  # 목표와 차이가 이 이하가 되면 래치 해제
+    launch_start_accel: 3.0         # m/s^2, 래치 중 속도 변화율
+    launch_start_reset_topic: "/launch_start_reset"  # std_msgs/Bool
+
     path_is_circular: True
     # path_is_circular를 false로 해야 로컬패스 가능
     

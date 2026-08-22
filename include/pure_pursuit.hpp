@@ -15,7 +15,9 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/u_int16_multi_array.hpp"
+#include "vesc_msgs/msg/vesc_state_stamped.hpp"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
@@ -108,6 +110,24 @@ private:
   int rf_value_min = 1000;
   int rf_value_max = 2000;
   bool rf_runtime_control_active = false;
+
+  // VESC sensors/core 기반 휠 속도
+  std::string vesc_state_topic;
+  double speed_to_erpm_gain = 3172.47;
+  double speed_to_erpm_offset = 0.0;
+  double wheel_speed_deadband = 0.05;
+  // VESC에서 나오는 속도를 명령 속도(path speed) 도메인으로 맞추는 배율
+  double wheel_speed_scale = 2.6;
+  double wheel_speed_timeout = 0.5;
+
+  // 런치 스타트
+  std::string launch_start_reset_topic;
+  bool launch_start_enabled = true;
+  int launch_start_channel = 5;
+  int launch_start_channel_threshold = 1800;
+  double launch_start_engage_diff = 1.0;
+  double launch_start_release_diff = 0.5;
+  double launch_start_accel = 3.0;
   double drive_output_rate_hz = 50.0;
   double active_drive_output_rate_hz = 0.0;
   double steer_latest_blend = 0.10;
@@ -122,6 +142,17 @@ private:
   double output_steer = 0.0;
   double output_speed = 0.0;
   double current_lookahead_distance = 0.0;
+  double wheel_speed_measured_ = 0.0; // VESC 원본 도메인 (m/s)
+  bool wheel_speed_valid_ = false;
+  rclcpp::Time wheel_speed_stamp_;
+  bool launch_start_active_ = false;
+  bool launch_start_pending_ = false;
+  double launch_start_ramp_speed_ = 0.0;
+  rclcpp::Time launch_start_prev_time_;
+  bool launch_start_time_valid_ = false;
+  int launch_start_prev_raw_ = 0;
+  bool launch_start_prev_raw_valid_ = false;
+
   bool has_target_command_ = false;
   bool output_command_initialized_ = false;
   int min_searching_idx_offset;
@@ -154,6 +185,10 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr subscription_path;
   rclcpp::Subscription<std_msgs::msg::UInt16MultiArray>::SharedPtr
       subscription_rf;
+  rclcpp::Subscription<vesc_msgs::msg::VescStateStamped>::SharedPtr
+      subscription_vesc_state;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr
+      subscription_launch_start_reset;
 
   // Publisher
   rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr
@@ -195,6 +230,10 @@ private:
                                double max_speed_limit_scale);
   bool validate_runtime_parameter(const rclcpp::Parameter &parameter,
                                   std::string *reason) const;
+  bool command_domain_wheel_speed(double *speed) const;
+  void request_launch_start(const char *source);
+  void cancel_launch_start(const char *source);
+  void update_launch_start();
   Eigen::Vector3d sample_path_point_by_distance(int start_idx, double distance,
                                                 int *reached_idx = nullptr);
   std::string selected_drive_topic() const;
@@ -221,6 +260,10 @@ private:
   void obs_odom_callback(const geometry_msgs::msg::PointStamped msg);
   void obs_status_callback(const geometry_msgs::msg::PointStamped msg);
   void rf_callback(const std_msgs::msg::UInt16MultiArray::ConstSharedPtr rf_msg);
+  void vesc_state_callback(
+      const vesc_msgs::msg::VescStateStamped::ConstSharedPtr state_msg);
+  void launch_start_reset_callback(
+      const std_msgs::msg::Bool::ConstSharedPtr reset_msg);
 
   // 런타임 변경 가능 파라미터 1개를 대응 멤버 변수에 반영합니다.
   bool apply_runtime_parameter(const rclcpp::Parameter &parameter);

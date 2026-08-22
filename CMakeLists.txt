@@ -18,6 +18,7 @@ foreach(PACKAGE
   geometry_msgs
   nav_msgs
   ackermann_msgs
+  vesc_msgs
   sensor_msgs
   std_msgs
   visualization_msgs
@@ -40,7 +41,7 @@ include_directories(
 add_executable(pure_pursuit src/pure_pursuit.cpp)
 
 ament_target_dependencies(pure_pursuit
-  rclcpp geometry_msgs ackermann_msgs nav_msgs sensor_msgs std_msgs visualization_msgs tf2 eigen3_cmake_module Eigen3
+  rclcpp geometry_msgs ackermann_msgs vesc_msgs nav_msgs sensor_msgs std_msgs visualization_msgs tf2 eigen3_cmake_module Eigen3
 )
 
 add_executable(waypoint_visualizer src/waypoint_visualizer.cpp)

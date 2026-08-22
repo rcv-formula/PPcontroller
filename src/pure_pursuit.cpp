@@ -83,6 +83,17 @@ constexpr const char *kRuntimeParameterNames[] = {
     "slow_with_obs",
     "obs_slow_th",
     "obs_slow_percentage",
+    "speed_to_erpm_gain",
+    "speed_to_erpm_offset",
+    "wheel_speed_deadband",
+    "wheel_speed_scale",
+    "wheel_speed_timeout",
+    "launch_start_enabled",
+    "launch_start_channel",
+    "launch_start_channel_threshold",
+    "launch_start_engage_diff",
+    "launch_start_release_diff",
+    "launch_start_accel",
 };
 
 // 런타임 변경 시 허용 범위.
@@ -117,6 +128,16 @@ constexpr RuntimeParameterBound kRuntimeParameterBounds[] = {
     {"rf_speed_scale_channel", 0.0, kUnbounded},
     {"rf_max_limit_channel", 0.0, kUnbounded},
     {"rf_enable_channel", 0.0, kUnbounded},
+    {"launch_start_channel", 0.0, kUnbounded},
+    {"launch_start_channel_threshold", 0.0, kUnbounded},
+    {"wheel_speed_deadband", 0.0, kUnbounded},
+    // 0이면 휠 속도가 항상 0으로 보여 래치가 계속 걸립니다.
+    {"wheel_speed_scale", 1e-6, kUnbounded},
+    {"wheel_speed_timeout", 0.0, kUnbounded},
+    {"launch_start_engage_diff", 0.0, kUnbounded},
+    {"launch_start_release_diff", 0.0, kUnbounded},
+    // 0이면 램프가 움직이지 않아 래치가 풀리지 않습니다.
+    {"launch_start_accel", 1e-3, kUnbounded},
 };
 } // namespace
 
@@ -144,6 +165,21 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   this->declare_parameter("rf_enable_threshold", 1500);
   this->declare_parameter("rf_value_min", 1000);
   this->declare_parameter("rf_value_max", 2000);
+  // VESC sensors/core 기반 휠 속도
+  this->declare_parameter("vesc_state_topic", "sensors/core");
+  this->declare_parameter("speed_to_erpm_gain", 3172.47);
+  this->declare_parameter("speed_to_erpm_offset", 0.0);
+  this->declare_parameter("wheel_speed_deadband", 0.05);
+  this->declare_parameter("wheel_speed_scale", 2.6);
+  this->declare_parameter("wheel_speed_timeout", 0.5);
+  // 런치 스타트
+  this->declare_parameter("launch_start_reset_topic", "/launch_start_reset");
+  this->declare_parameter("launch_start_enabled", true);
+  this->declare_parameter("launch_start_channel", 5);
+  this->declare_parameter("launch_start_channel_threshold", 1800);
+  this->declare_parameter("launch_start_engage_diff", 1.0);
+  this->declare_parameter("launch_start_release_diff", 0.5);
+  this->declare_parameter("launch_start_accel", 3.0);
   this->declare_parameter("global_refFrame", "map");
   this->declare_parameter("path_is_circular", true);
   this->declare_parameter("min_lookahead", 0.5);
@@ -196,6 +232,9 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   rviz_runtime_params_topic =
       this->get_parameter("rviz_runtime_params_topic").as_string();
   rf_topic = this->get_parameter("rf_topic").as_string();
+  vesc_state_topic = this->get_parameter("vesc_state_topic").as_string();
+  launch_start_reset_topic =
+      this->get_parameter("launch_start_reset_topic").as_string();
   global_refFrame = this->get_parameter("global_refFrame").as_string();
   path_is_circular = this->get_parameter("path_is_circular").as_bool();
 
@@ -217,6 +256,14 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   current_lookahead_distance = 0.0;
   observed_path_max_speed = 0.0;
   rf_runtime_control_active = false;
+  wheel_speed_measured_ = 0.0;
+  wheel_speed_valid_ = false;
+  launch_start_active_ = false;
+  launch_start_pending_ = false;
+  launch_start_ramp_speed_ = 0.0;
+  launch_start_time_valid_ = false;
+  launch_start_prev_raw_ = 0;
+  launch_start_prev_raw_valid_ = false;
   has_target_command_ = false;
   output_command_initialized_ = false;
   num_waypoints = 0;
@@ -246,6 +293,19 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
 
   subscription_rf = this->create_subscription<std_msgs::msg::UInt16MultiArray>(
       rf_topic, 10, std::bind(&PurePursuit::rf_callback, this, _1));
+
+  // VESC telemetry는 최신값만 필요하므로 얕은 큐 + BestEffort
+  rclcpp::QoS vesc_qos(rclcpp::KeepLast(1));
+  vesc_qos.reliability(rclcpp::ReliabilityPolicy::BestEffort);
+  subscription_vesc_state =
+      this->create_subscription<vesc_msgs::msg::VescStateStamped>(
+          vesc_state_topic, vesc_qos,
+          std::bind(&PurePursuit::vesc_state_callback, this, _1));
+
+  subscription_launch_start_reset =
+      this->create_subscription<std_msgs::msg::Bool>(
+          launch_start_reset_topic, 10,
+          std::bind(&PurePursuit::launch_start_reset_callback, this, _1));
 
   configure_drive_publisher();
   configure_drive_output_timer();
@@ -318,6 +378,34 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
                 "enable ch[%d] >= %d, raw range [%d, %d]",
                 rf_speed_scale_channel, rf_max_limit_channel, rf_enable_channel,
                 rf_enable_threshold, rf_raw_min, rf_raw_max);
+    RCLCPP_INFO(this->get_logger(),
+                "Launch start: %s, trigger ch[%d] rising past %d, "
+                "engage >= %.2f m/s, release <= %.2f m/s, accel %.2f m/s^2",
+                launch_start_enabled ? "enabled" : "disabled",
+                launch_start_channel, launch_start_channel_threshold,
+                launch_start_engage_diff, launch_start_release_diff,
+                launch_start_accel);
+    RCLCPP_INFO(this->get_logger(),
+                "Wheel speed: %s, erpm gain %.2f, offset %.2f, "
+                "command-domain scale %.2f",
+                vesc_state_topic.c_str(), speed_to_erpm_gain,
+                speed_to_erpm_offset, wheel_speed_scale);
+    if (launch_start_channel == rf_speed_scale_channel ||
+        launch_start_channel == rf_max_limit_channel ||
+        launch_start_channel == rf_enable_channel) {
+      RCLCPP_WARN(this->get_logger(),
+                  "launch_start_channel(%d) is already used by another RF "
+                  "channel: any rising edge past %d on it also fires launch "
+                  "start",
+                  launch_start_channel, launch_start_channel_threshold);
+    }
+    if (launch_start_release_diff >= launch_start_engage_diff) {
+      RCLCPP_WARN(this->get_logger(),
+                  "launch_start_release_diff(%.2f) >= "
+                  "launch_start_engage_diff(%.2f): the latch releases as soon "
+                  "as it engages",
+                  launch_start_release_diff, launch_start_engage_diff);
+    }
     if (rf_enable_threshold <= rf_raw_min) {
       RCLCPP_WARN(this->get_logger(),
                   "rf_enable_threshold(%d) <= raw min(%d): RF runtime control "
@@ -636,7 +724,18 @@ void PurePursuit::visualize_runtime_params() {
   std::ostringstream text;
   text << std::fixed << std::setprecision(2)
        << "speed scale: " << velocity_percentage << '\n'
-       << "max limit: " << max_speed_limit_percentage;
+       << "max limit: " << max_speed_limit_percentage << '\n';
+
+  double wheel_speed = 0.0;
+  if (command_domain_wheel_speed(&wheel_speed)) {
+    text << "wheel: " << wheel_speed;
+  } else {
+    text << "wheel: n/a";
+  }
+  if (launch_start_active_) {
+    text << '\n' << "LAUNCH " << launch_start_ramp_speed_ << " -> "
+         << target_speed;
+  }
   marker.text = text.str();
 
   vis_runtime_params_pub->publish(marker);
@@ -1149,6 +1248,14 @@ void PurePursuit::drive_output_timer_callback() {
     output_speed += speed_alpha * (target_speed - output_speed);
   }
 
+  // 런치 스타트 래치가 걸린 동안에는 위 블렌딩 대신 설정 가속도 램프를
+  // 그대로 내보냅니다. 래치가 풀리면 램프 값에서 이어서 기존 동작으로
+  // 돌아가므로 전환 지점에 단차가 생기지 않습니다.
+  update_launch_start();
+  if (launch_start_active_) {
+    output_speed = launch_start_ramp_speed_;
+  }
+
   const double steering_limit_rad = to_radians(steering_limit);
   output_steer =
       std::clamp(output_steer, -steering_limit_rad, steering_limit_rad);
@@ -1235,6 +1342,21 @@ void PurePursuit::rf_callback(
     return;
   }
 
+  // 런치 스타트 트리거는 enable 스위치와 무관하게 판정합니다.
+  // 임계값 이하였다가 초과로 "올라가는" 순간에만 한 번 발생하고,
+  // 첫 메시지는 직전 값이 없으므로 엣지로 보지 않습니다.
+  int launch_raw = 0;
+  if (read_rf_channel(*rf_msg, launch_start_channel, &launch_raw)) {
+    const bool is_above = launch_raw > launch_start_channel_threshold;
+    const bool was_above =
+        launch_start_prev_raw_ > launch_start_channel_threshold;
+    if (launch_start_prev_raw_valid_ && is_above && !was_above) {
+      request_launch_start("RF channel");
+    }
+    launch_start_prev_raw_ = launch_raw;
+    launch_start_prev_raw_valid_ = true;
+  }
+
   int enable_raw = 0;
   if (!read_rf_channel(*rf_msg, rf_enable_channel, &enable_raw)) {
     rf_runtime_control_active = false;
@@ -1277,6 +1399,164 @@ void PurePursuit::rf_callback(
 
   set_runtime_percentages(rf_raw_to_unit(speed_scale_raw),
                           rf_raw_to_unit(max_limit_raw));
+}
+
+// VESC telemetry(sensors/core)의 전기 RPM을 휠 속도(m/s)로 변환해 보관합니다.
+//   speed = (erpm - speed_to_erpm_offset) / speed_to_erpm_gain
+// vesc_to_odom과 동일한 식이며 저속 데드밴드도 동일하게 적용합니다.
+void PurePursuit::vesc_state_callback(
+    const vesc_msgs::msg::VescStateStamped::ConstSharedPtr state_msg) {
+  if (!state_msg) {
+    return;
+  }
+
+  if (std::abs(speed_to_erpm_gain) < 1e-6) {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                         "speed_to_erpm_gain(%.6f) is too small to convert "
+                         "wheel speed",
+                         speed_to_erpm_gain);
+    return;
+  }
+
+  double speed =
+      (state_msg->state.speed - speed_to_erpm_offset) / speed_to_erpm_gain;
+  if (std::abs(speed) < std::max(0.0, wheel_speed_deadband)) {
+    speed = 0.0;
+  }
+
+  wheel_speed_measured_ = speed;
+  wheel_speed_stamp_ = this->now();
+  wheel_speed_valid_ = true;
+}
+
+// 다른 노드가 런치 스타트를 걸거나(true) 해제(false)합니다.
+void PurePursuit::launch_start_reset_callback(
+    const std_msgs::msg::Bool::ConstSharedPtr reset_msg) {
+  if (!reset_msg) {
+    return;
+  }
+
+  if (reset_msg->data) {
+    request_launch_start("reset topic");
+  } else {
+    cancel_launch_start("reset topic");
+  }
+}
+
+// 측정 휠 속도를 명령 속도(path speed) 도메인으로 변환해 돌려줍니다.
+// 값이 없거나 오래됐으면 false.
+bool PurePursuit::command_domain_wheel_speed(double *speed) const {
+  if (!wheel_speed_valid_) {
+    return false;
+  }
+
+  if (wheel_speed_timeout > 0.0) {
+    const double age = (this->now() - wheel_speed_stamp_).seconds();
+    if (age < 0.0 || age > wheel_speed_timeout) {
+      return false;
+    }
+  }
+
+  if (speed) {
+    *speed = wheel_speed_measured_ * wheel_speed_scale;
+  }
+  return true;
+}
+
+// 런치 스타트를 요청합니다. 실제 래치 여부는 목표 속도를 알 수 있는
+// update_launch_start()에서 판정하므로 여기서는 대기 상태로만 둡니다.
+// 이미 진행 중이어도 현재 휠 속도 기준으로 다시 시작합니다.
+void PurePursuit::request_launch_start(const char *source) {
+  if (!launch_start_enabled) {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                         "Launch start request from %s ignored: "
+                         "launch_start_enabled is false",
+                         source);
+    return;
+  }
+
+  launch_start_pending_ = true;
+  launch_start_active_ = false;
+  launch_start_time_valid_ = false;
+  RCLCPP_INFO(this->get_logger(), "Launch start requested by %s", source);
+}
+
+void PurePursuit::cancel_launch_start(const char *source) {
+  if (!launch_start_active_ && !launch_start_pending_) {
+    return;
+  }
+
+  launch_start_active_ = false;
+  launch_start_pending_ = false;
+  launch_start_time_valid_ = false;
+  RCLCPP_INFO(this->get_logger(), "Launch start cancelled by %s", source);
+}
+
+// 래치 상태를 갱신합니다. 래치가 걸려 있는 동안 launch_start_ramp_speed_는
+// 설정한 가속도만큼만 목표 속도를 따라갑니다. 목표 속도는 차량 위치에 따라
+// 계속 바뀌므로, 램프가 그 목표에 release_diff 이내로 붙으면 래치를 풉니다.
+void PurePursuit::update_launch_start() {
+  if (!launch_start_enabled) {
+    launch_start_active_ = false;
+    launch_start_pending_ = false;
+    return;
+  }
+
+  if (launch_start_pending_) {
+    launch_start_pending_ = false;
+
+    double wheel_speed = 0.0;
+    if (!command_domain_wheel_speed(&wheel_speed)) {
+      RCLCPP_WARN(this->get_logger(),
+                  "Launch start skipped: no fresh wheel speed on %s",
+                  vesc_state_topic.c_str());
+    } else if (std::abs(target_speed - wheel_speed) <
+               launch_start_engage_diff) {
+      // 이미 목표 속도에 붙어 있으면 기존 동작 그대로 둡니다.
+      RCLCPP_INFO(this->get_logger(),
+                  "Launch start skipped: |target %.2f - wheel %.2f| < %.2f",
+                  target_speed, wheel_speed, launch_start_engage_diff);
+    } else {
+      launch_start_active_ = true;
+      launch_start_ramp_speed_ = wheel_speed;
+      launch_start_time_valid_ = false;
+      RCLCPP_INFO(this->get_logger(),
+                  "Launch start engaged: target %.2f m/s, wheel %.2f m/s, "
+                  "accel %.2f m/s^2",
+                  target_speed, wheel_speed, launch_start_accel);
+    }
+  }
+
+  if (!launch_start_active_) {
+    return;
+  }
+
+  const rclcpp::Time now = this->now();
+  double dt = 0.0;
+  if (launch_start_time_valid_) {
+    dt = (now - launch_start_prev_time_).seconds();
+  }
+  launch_start_prev_time_ = now;
+  launch_start_time_valid_ = true;
+  // 콜백이 밀리거나 시계가 되감긴 경우 한 번에 크게 튀지 않도록 제한
+  dt = std::clamp(dt, 0.0, 0.2);
+
+  const double step = std::max(0.0, launch_start_accel) * dt;
+  const double diff = target_speed - launch_start_ramp_speed_;
+  if (std::abs(diff) <= step) {
+    launch_start_ramp_speed_ = target_speed;
+  } else {
+    launch_start_ramp_speed_ += std::copysign(step, diff);
+  }
+
+  if (std::abs(target_speed - launch_start_ramp_speed_) <=
+      launch_start_release_diff) {
+    launch_start_active_ = false;
+    launch_start_time_valid_ = false;
+    RCLCPP_INFO(this->get_logger(),
+                "Launch start released: ramp %.2f m/s, target %.2f m/s",
+                launch_start_ramp_speed_, target_speed);
+  }
 }
 
 // 런타임 파라미터 하나가 반영해도 안전한 값인지 검사합니다.
@@ -1447,6 +1727,28 @@ bool PurePursuit::apply_runtime_parameter(const rclcpp::Parameter &parameter) {
     slow_th_dist = parameter.as_double();
   } else if (name == "obs_slow_percentage") {
     slow_amount = parameter.as_double();
+  } else if (name == "speed_to_erpm_gain") {
+    speed_to_erpm_gain = parameter.as_double();
+  } else if (name == "speed_to_erpm_offset") {
+    speed_to_erpm_offset = parameter.as_double();
+  } else if (name == "wheel_speed_deadband") {
+    wheel_speed_deadband = parameter.as_double();
+  } else if (name == "wheel_speed_scale") {
+    wheel_speed_scale = parameter.as_double();
+  } else if (name == "wheel_speed_timeout") {
+    wheel_speed_timeout = parameter.as_double();
+  } else if (name == "launch_start_enabled") {
+    launch_start_enabled = parameter.as_bool();
+  } else if (name == "launch_start_channel") {
+    launch_start_channel = parameter.as_int();
+  } else if (name == "launch_start_channel_threshold") {
+    launch_start_channel_threshold = parameter.as_int();
+  } else if (name == "launch_start_engage_diff") {
+    launch_start_engage_diff = parameter.as_double();
+  } else if (name == "launch_start_release_diff") {
+    launch_start_release_diff = parameter.as_double();
+  } else if (name == "launch_start_accel") {
+    launch_start_accel = parameter.as_double();
   } else {
     return false;
   }

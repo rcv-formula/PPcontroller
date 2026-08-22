@@ -193,6 +193,8 @@ private:
                        int channel_index, int *raw_value) const;
   void set_runtime_percentages(double velocity_scale,
                                double max_speed_limit_scale);
+  bool validate_runtime_parameter(const rclcpp::Parameter &parameter,
+                                  std::string *reason) const;
   Eigen::Vector3d sample_path_point_by_distance(int start_idx, double distance,
                                                 int *reached_idx = nullptr);
   std::string selected_drive_topic() const;

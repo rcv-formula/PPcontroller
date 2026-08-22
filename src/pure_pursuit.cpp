@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -77,6 +78,45 @@ constexpr const char *kRuntimeParameterNames[] = {
     "steer_speed_filter_end_speed",
     "steer_speed_filter_final_blend",
     "speed_latest_blend",
+    "min_searching_idx_offset",
+    "max_searching_idx_offset",
+    "slow_with_obs",
+    "obs_slow_th",
+    "obs_slow_percentage",
+};
+
+// 런타임 변경 시 허용 범위.
+// 여기에 없는 숫자 파라미터는 유한값(NaN/inf 불가) 여부만 검사합니다.
+// 사용 지점에서 이미 clamp하는 값(각종 blend, min_scale 등)은 등록하지 않습니다.
+constexpr double kUnbounded = std::numeric_limits<double>::infinity();
+
+struct RuntimeParameterBound {
+  const char *name;
+  double min_value;
+  double max_value;
+};
+
+constexpr RuntimeParameterBound kRuntimeParameterBounds[] = {
+    {"velocity_percentage", 0.0, 1.0},
+    {"max_speed_limit_percentage", 0.0, 1.0},
+    // 음수 게인은 제어 방향이 뒤집혀 즉시 발산합니다.
+    {"K_p", 0.0, kUnbounded},
+    {"K_i", 0.0, kUnbounded},
+    {"K_d", 0.0, kUnbounded},
+    // 0 이하이면 std::clamp(x, -lim, lim)의 lo > hi가 되어 정의되지 않은 동작
+    {"steering_limit", 1e-3, 90.0},
+    {"min_lookahead", 0.0, kUnbounded},
+    {"max_lookahead", 0.0, kUnbounded},
+    // lookahead 계산에서 나눗셈 분모로 사용됩니다.
+    {"lookahead_ratio", 1e-6, kUnbounded},
+    {"steering_expo_curve", 1e-6, kUnbounded},
+    {"drive_output_rate_hz", 0.0, kUnbounded},
+    {"visualization_rate_hz", 0.0, kUnbounded},
+    {"obs_slow_th", 0.0, kUnbounded},
+    {"obs_slow_percentage", 0.0, 1.0},
+    {"rf_speed_scale_channel", 0.0, kUnbounded},
+    {"rf_max_limit_channel", 0.0, kUnbounded},
+    {"rf_enable_channel", 0.0, kUnbounded},
 };
 } // namespace
 
@@ -158,13 +198,6 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
   rf_topic = this->get_parameter("rf_topic").as_string();
   global_refFrame = this->get_parameter("global_refFrame").as_string();
   path_is_circular = this->get_parameter("path_is_circular").as_bool();
-  min_searching_idx_offset =
-      this->get_parameter("min_searching_idx_offset").as_int();
-  max_searching_idx_offset =
-      this->get_parameter("max_searching_idx_offset").as_int();
-  slow_with_obs = this->get_parameter("slow_with_obs").as_bool();
-  slow_th_dist = this->get_parameter("obs_slow_th").as_double();
-  slow_amount = this->get_parameter("obs_slow_percentage").as_double();
 
   // 런타임 변경 가능 파라미터는 apply_runtime_parameter()로 일괄 반영
   for (const char *name : kRuntimeParameterNames) {
@@ -234,29 +267,17 @@ PurePursuit::PurePursuit() : Node("pure_pursuit_node") {
         rcl_interfaces::msg::SetParametersResult result;
         result.successful = true;
 
-        // 검증: 속도 비율 파라미터는 [0.0, 1.0] 범위의 숫자만 허용
+        // 검증: 숫자 파라미터는 유한값이어야 하고,
+        // kRuntimeParameterBounds에 등록된 항목은 그 범위 안이어야 합니다.
+        // set_parameters_atomically로 들어온 묶음은 하나만 걸려도 전체가 거부됩니다.
+        // (일반 set_parameters는 rclcpp가 파라미터별로 호출하므로 개별 판정)
         for (const auto &parameter : parameters) {
-          const std::string &name = parameter.get_name();
-          if (name != "velocity_percentage" &&
-              name != "max_speed_limit_percentage") {
-            continue;
-          }
-
-          double value = 0.0;
-          if (parameter.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
-            value = parameter.as_double();
-          } else if (parameter.get_type() ==
-                     rclcpp::ParameterType::PARAMETER_INTEGER) {
-            value = static_cast<double>(parameter.as_int());
-          } else {
+          std::string reason;
+          if (!validate_runtime_parameter(parameter, &reason)) {
             result.successful = false;
-            result.reason = name + " must be a number in [0.0, 1.0]";
-            return result;
-          }
-
-          if (!std::isfinite(value) || value < 0.0 || value > 1.0) {
-            result.successful = false;
-            result.reason = name + " must be in [0.0, 1.0]";
+            result.reason = reason;
+            RCLCPP_WARN(this->get_logger(), "Rejected parameter update: %s",
+                        reason.c_str());
             return result;
           }
         }
@@ -1258,6 +1279,64 @@ void PurePursuit::rf_callback(
                           rf_raw_to_unit(max_limit_raw));
 }
 
+// 런타임 파라미터 하나가 반영해도 안전한 값인지 검사합니다.
+// 숫자가 아닌 파라미터(토픽 이름, 플래그 등)는 검사 없이 통과시킵니다.
+bool PurePursuit::validate_runtime_parameter(const rclcpp::Parameter &parameter,
+                                             std::string *reason) const {
+  const std::string &name = parameter.get_name();
+
+  const RuntimeParameterBound *bound = nullptr;
+  for (const auto &candidate : kRuntimeParameterBounds) {
+    if (name == candidate.name) {
+      bound = &candidate;
+      break;
+    }
+  }
+
+  const auto type = parameter.get_type();
+  if (type != rclcpp::ParameterType::PARAMETER_DOUBLE &&
+      type != rclcpp::ParameterType::PARAMETER_INTEGER) {
+    if (bound != nullptr) {
+      if (reason) {
+        *reason = name + " must be a number";
+      }
+      return false;
+    }
+    return true;
+  }
+
+  const double value =
+      type == rclcpp::ParameterType::PARAMETER_INTEGER
+          ? static_cast<double>(parameter.as_int())
+          : parameter.as_double();
+
+  // NaN/inf는 한 번 들어오면 제어 출력과 적분항까지 오염되어 복구되지 않습니다.
+  if (!std::isfinite(value)) {
+    if (reason) {
+      *reason = name + " must be a finite number (NaN/inf is rejected)";
+    }
+    return false;
+  }
+
+  if (bound != nullptr &&
+      (value < bound->min_value || value > bound->max_value)) {
+    if (reason) {
+      std::ostringstream oss;
+      oss << name << " must be in [" << bound->min_value << ", ";
+      if (bound->max_value == kUnbounded) {
+        oss << "inf";
+      } else {
+        oss << bound->max_value;
+      }
+      oss << "] (got " << value << ")";
+      *reason = oss.str();
+    }
+    return false;
+  }
+
+  return true;
+}
+
 // 런타임에 변경 가능한 파라미터 하나를 대응하는 멤버 변수에 반영합니다.
 // 처리한 파라미터면 true, 목록에 없는 이름이면 false를 반환합니다.
 bool PurePursuit::apply_runtime_parameter(const rclcpp::Parameter &parameter) {
@@ -1358,6 +1437,16 @@ bool PurePursuit::apply_runtime_parameter(const rclcpp::Parameter &parameter) {
     steer_speed_filter_final_blend = parameter.as_double();
   } else if (name == "speed_latest_blend") {
     speed_latest_blend = parameter.as_double();
+  } else if (name == "min_searching_idx_offset") {
+    min_searching_idx_offset = parameter.as_int();
+  } else if (name == "max_searching_idx_offset") {
+    max_searching_idx_offset = parameter.as_int();
+  } else if (name == "slow_with_obs") {
+    slow_with_obs = parameter.as_bool();
+  } else if (name == "obs_slow_th") {
+    slow_th_dist = parameter.as_double();
+  } else if (name == "obs_slow_percentage") {
+    slow_amount = parameter.as_double();
   } else {
     return false;
   }
